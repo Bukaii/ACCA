@@ -735,18 +735,22 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
         write_rows(book,"RAW_PARTIDAS",match_columns,upsert(old_matches,incoming_matches))
         write_rows(book,"RAW_JUGADORES",player_columns,upsert_participants(old_players,incoming_players))
     save_submission_queue(book, queue)
-    # Backfill historical complete JSON from Sheets without requesting Riot again.
-    if supabase_archive.configured():
-        from collections import defaultdict
-        archived = defaultdict(lambda: defaultdict(list))
-        for old in records(book,"RAW_RIOT_ARCHIVO"):
-            if old.get("TIPO") in ("MATCH","TIMELINE") and old.get("GZIP_BASE64"):
-                archived[str(old["MATCH_ID"])][old["TIPO"]].append(
-                    [old.get(k) for k in EXTRA_TABS["RAW_RIOT_ARCHIVO"]])
-        for mid, kinds in archived.items():
-            if "MATCH" in kinds and "TIMELINE" in kinds:
-                if supabase_archive.load(mid,"match") is None or supabase_archive.load(mid,"timeline") is None:
-                    supabase_archive.store_pair(mid,unarchive(kinds["MATCH"]),unarchive(kinds["TIMELINE"]))
+    # Supabase is mandatory for synchronization; never silently skip archival.
+    if not supabase_archive.configured():
+        raise RuntimeError("Falta SUPABASE_SECRET_KEY o SUPABASE_URL: no se archivaron partidas en Supabase")
+    from collections import defaultdict
+    archived = defaultdict(lambda: defaultdict(list))
+    for old in records(book,"RAW_RIOT_ARCHIVO"):
+        if old.get("TIPO") in ("MATCH","TIMELINE") and old.get("GZIP_BASE64"):
+            archived[str(old["MATCH_ID"])][old["TIPO"]].append(
+                [old.get(k) for k in EXTRA_TABS["RAW_RIOT_ARCHIVO"]])
+    for mid, kinds in archived.items():
+        if "MATCH" not in kinds or "TIMELINE" not in kinds:
+            raise RuntimeError("Archivo Riot incompleto en Google Sheets: "+mid)
+        match = supabase_archive.load(mid,"match")
+        timeline = supabase_archive.load(mid,"timeline")
+        if match is None or timeline is None:
+            supabase_archive.store_pair(mid,unarchive(kinds["MATCH"]),unarchive(kinds["TIMELINE"]))
     repaired = repair_from_archive(book, members)
     if changed or repaired or force:
         rebuild(book)
