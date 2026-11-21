@@ -205,7 +205,7 @@ def present(book, players_book):
         if ws.title in visible and ws._properties.get("hidden", False):
             book.batch_update({"requests": [{"updateSheetProperties": {"properties": {"sheetId": ws.id, "hidden": False}, "fields": "hidden"}}]})
     # Display the most useful views first, keeping all technical tables intact.
-    ordered = ["REGISTRO", "PARTIDAS_PENDIENTES", "GUIA", "RESUMEN", "PARTIDAS", "DETALLE DE PARTIDAS",
+    ordered = ["REGISTRO", "GUIA", "PARTIDAS_PENDIENTES", "RESUMEN", "PARTIDAS", "DETALLE DE PARTIDAS",
                "CAMPEONES", "EQUIPOS", "COMPOSICIONES",
                "OBJETOS", "OBJETIVOS", "EVENTOS", "REGISTRO"]
     book.batch_update({"requests": [
@@ -214,6 +214,15 @@ def present(book, players_book):
             "fields": "index"
         }} for index, name in enumerate(ordered)
     ]})
+    # Put navigation and instructions next to their corresponding editable tables.
+    player_order = ["JUGADORES", "GUIA", "RENDIMIENTO", "PARTICIPACIONES"]
+    players_book.batch_update({"requests":[{"updateSheetProperties":{"properties":
+        {"sheetId":players_book.worksheet(name).id,"index":i},"fields":"index"}}
+        for i,name in enumerate(player_order)]})
+    for ws in players_book.worksheets():
+        if ws.title == "IDENTIDADES" and not ws._properties.get("hidden",False):
+            players_book.batch_update({"requests":[{"updateSheetProperties":{
+                "properties":{"sheetId":ws.id,"hidden":True},"fields":"hidden"}}]})
     # All individual player reports must remain visible after every sync.
     for ws in players_book.worksheets():
         if ws.title.startswith("J_") and ws._properties.get("hidden", False):
