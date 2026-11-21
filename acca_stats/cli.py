@@ -103,9 +103,8 @@ def present(book, players_book):
     ranking,history=build_players(matches,participants,details)
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
-    style(book,GENERAL)
     style(players_book,PLAYERS)
-    # Historical RAW and old STATS remain available through unhide, never deleted.
+    # Preserve the complete historical general analytics, with a unified theme.
     # Keep the full general analytics visible; hide only individual player tabs.
     general_detail = {
         "DASHBOARD_STATS", "STATS_CAMPEONES", "STATS_EQUIPOS",
@@ -113,6 +112,7 @@ def present(book, players_book):
         "RAW_EQUIPOS", "RAW_EVENTOS", "RAW_RIOT_ARCHIVO",
         "PARTIDAS_MANUALES", "CANDIDATAS", "SISTEMA",
     }
+    style(book,set(GENERAL) | general_detail)
     hide_legacy(book,set(GENERAL) | general_detail)
     hide_legacy(players_book,set(PLAYERS))
 
