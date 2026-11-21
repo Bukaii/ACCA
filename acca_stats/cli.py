@@ -155,7 +155,7 @@ def present(book, players_book):
         rows.extend([[], ["HISTORIAL DE PARTIDAS REGISTRADAS"], player_header])
         rows.extend(player_rows)
         ws = ensure_tab(players_book,source.title,[])
-        width = max(map(len,rows))
+        width = max(18, max(map(len,rows)))
         if ws.col_count < width:
             ws.add_cols(width-ws.col_count)
         if ws.row_count < len(rows):
@@ -245,6 +245,22 @@ def present(book, players_book):
                 requests.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
                     "dimension":"ROWS","startIndex":i,"endIndex":i+1},
                     "properties":{"pixelSize":34},"fields":"pixelSize"}})
+        # Existing legacy merges (often A:G) truncate the visible color and
+        # the player's name. Remove them before merging full-width section bars.
+        meta = players_book.fetch_sheet_metadata(
+            params={"fields":"sheets(properties(sheetId),merges)"})
+        old_merges = next((sh.get("merges",[]) for sh in meta.get("sheets",[])
+                           if sh["properties"]["sheetId"]==ws.id),[])
+        for merged in old_merges:
+            requests.insert(0,{"unmergeCells":{"range":merged}})
+        # Merge only rows known to contain a single value in column A.
+        # Never merge table headers or statistics, so no data is lost.
+        for i in [0,1,2]+section_rows:
+            if i < len(rows) and len(rows[i])==1:
+                requests.append({"mergeCells":{"range":{"sheetId":ws.id,
+                    "startRowIndex":i,"endRowIndex":i+1,
+                    "startColumnIndex":0,"endColumnIndex":width},
+                    "mergeType":"MERGE_ALL"}})
         players_book.batch_update({"requests":requests})
     guide = [
         ["CAMPO","SIGNIFICADO"],
