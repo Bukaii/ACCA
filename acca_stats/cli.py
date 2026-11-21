@@ -214,7 +214,7 @@ def rebuild(book):
     matches = records(book,"RAW_PARTIDAS")
     participants = records(book,"RAW_JUGADORES")
     write_rows(book,"DASHBOARD_STATS",TABS["DASHBOARD_STATS"],summary(matches,lambda r:"ACCA"))
-    write_rows(book,"STATS_EQUIPOS",TABS["STATS_EQUIPOS"],summary(matches,lambda r:str(r.get("INTEGRANTES",""))))
+    write_rows(book,"STATS_EQUIPOS",TABS["STATS_EQUIPOS"],summary([m for m in matches if m.get("EQUIPO_ACCA") or m.get("INTEGRANTES")],lambda r:str(r.get("EQUIPO_ACCA") or r.get("INTEGRANTES"))))
     by_id = {str(r["MATCH_ID"]):r for r in matches}
     entries = []
     for p in participants:
@@ -250,9 +250,17 @@ def rebuild(book):
         items = {item for item in str(p.get("ITEMS","")).split("|") if item.isdigit() and int(item)>0}
         for item in items:
             item_entries.append({"RESULTADO":m["RESULTADO"],"KEY":alias+" | "+champion+" | "+item})
-    for mid, champs in champions_by_match.items():
-        if len(champs)==5:
-            comp_entries.append({"RESULTADO":by_id[mid]["RESULTADO"],"KEY":" | ".join(sorted(champs))})
+    # Use the complete five-champion draft from match data when available.
+    # Player-derived champions are only a fallback for complete ACCA rosters.
+    for mid, match in by_id.items():
+        full = str(match.get("COMPOSICION_ACCA", "")).strip()
+        if full:
+            key = " | ".join(sorted(part.strip() for part in full.split("+") if part.strip()))
+            if len([part for part in full.split("+") if part.strip()]) == 5:
+                comp_entries.append({"RESULTADO":match["RESULTADO"], "KEY":key})
+        elif len(champions_by_match.get(mid, [])) == 5:
+            comp_entries.append({"RESULTADO":match["RESULTADO"],
+                                 "KEY":" | ".join(sorted(champions_by_match[mid]))})
     write_rows(book,"STATS_OBJETOS",EXTRA_TABS["STATS_OBJETOS"],summary(item_entries,lambda r:r["KEY"]))
     write_rows(book,"STATS_COMPOSICIONES",EXTRA_TABS["STATS_COMPOSICIONES"],summary(comp_entries,lambda r:r["KEY"]))
 
