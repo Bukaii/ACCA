@@ -170,63 +170,82 @@ def present(book, players_book):
         old_length = len(ws.get_all_values())
         if old_length > len(rows):
             ws.batch_clear([f"A{len(rows)+1}:{rowcol_to_a1(old_length,ws.col_count)}"])
-        # Style sectioned reports without changing any values or merging cells.
-        # Compact columns and readable long labels; each original metric remains.
+        # Dashboard-like visual hierarchy: a legible identity banner,
+        # distinct section cards, separated table headers and breathing room.
+        # Formatting only: never delete, move or truncate historical metrics.
         section_rows = [i for i,row in enumerate(rows)
                         if len(row)==1 and row[0] and i>2]
         header_rows = [i for i,row in enumerate(rows)
                        if len(row)>1 and row[0] in
                        ("PARTIDAS","CAMPEON","ROL","OBJETO","MATCH_ID")]
-        formatting = [
+        navy = {"red":0.12,"green":0.19,"blue":0.30}
+        blue = {"red":0.19,"green":0.32,"blue":0.49}
+        pale = {"red":0.91,"green":0.94,"blue":0.98}
+        white = {"red":1,"green":1,"blue":1}
+        ink = {"red":0.12,"green":0.18,"blue":0.27}
+        requests = [
             {"updateSheetProperties":{"properties":{"sheetId":ws.id,
                 "gridProperties":{"frozenRowCount":0,"hideGridlines":True}},
                 "fields":"gridProperties.frozenRowCount,gridProperties.hideGridlines"}},
             {"updateDimensionProperties":{"range":{"sheetId":ws.id,
                 "dimension":"COLUMNS","startIndex":0,"endIndex":1},
-                "properties":{"pixelSize":265},"fields":"pixelSize"}},
+                "properties":{"pixelSize":350},"fields":"pixelSize"}},
             {"updateDimensionProperties":{"range":{"sheetId":ws.id,
-                "dimension":"COLUMNS","startIndex":1,"endIndex":min(2,width)},
-                "properties":{"pixelSize":235},"fields":"pixelSize"}},
+                "dimension":"COLUMNS","startIndex":1,"endIndex":2},
+                "properties":{"pixelSize":260},"fields":"pixelSize"}},
+            {"repeatCell":{"range":{"sheetId":ws.id},
+                "cell":{"userEnteredFormat":{"backgroundColor":white,
+                    "verticalAlignment":"MIDDLE","wrapStrategy":"WRAP",
+                    "textFormat":{"fontSize":10,"foregroundColor":ink}}},
+                "fields":"userEnteredFormat"}},
         ]
         if width>2:
-            formatting.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
+            requests.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
                 "dimension":"COLUMNS","startIndex":2,"endIndex":width},
-                "properties":{"pixelSize":125},"fields":"pixelSize"}})
-        formatting.append({"repeatCell":{"range":{"sheetId":ws.id},
-            "cell":{"userEnteredFormat":{"verticalAlignment":"MIDDLE",
-                "wrapStrategy":"WRAP","textFormat":{"fontSize":10}}},
-            "fields":"userEnteredFormat.verticalAlignment,userEnteredFormat.wrapStrategy,userEnteredFormat.textFormat.fontSize"}})
+                "properties":{"pixelSize":145},"fields":"pixelSize"}})
+        def paint(i, color, font_color, size, height, bold=True):
+            requests.append({"repeatCell":{"range":{"sheetId":ws.id,
+                "startRowIndex":i,"endRowIndex":i+1,"startColumnIndex":0,
+                "endColumnIndex":width},
+                "cell":{"userEnteredFormat":{"backgroundColor":color,
+                    "verticalAlignment":"MIDDLE","wrapStrategy":"WRAP",
+                    "textFormat":{"bold":bold,"fontSize":size,
+                        "foregroundColor":font_color}}},
+                "fields":"userEnteredFormat"}})
+            requests.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
+                "dimension":"ROWS","startIndex":i,"endIndex":i+1},
+                "properties":{"pixelSize":height},"fields":"pixelSize"}})
+        # Name is the primary page heading, not a tiny cell label.
+        paint(0,navy,white,15,68)
+        # Region and report explanation form a separate, readable intro.
+        for i in (1,2):
+            if i < len(rows):
+                paint(i,pale,ink,10,36 if i==1 else 58,False)
         for i in section_rows:
-            formatting.append({"repeatCell":{"range":{"sheetId":ws.id,
-                "startRowIndex":i,"endRowIndex":i+1,"startColumnIndex":0,
-                "endColumnIndex":width},
-                "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.87,"green":0.92,"blue":0.97},
-                    "textFormat":{"bold":True,"fontSize":11,"foregroundColor":{"red":0.10,"green":0.17,"blue":0.27}}}},
-                "fields":"userEnteredFormat.backgroundColor,userEnteredFormat.textFormat"}})
-            formatting.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
-                "dimension":"ROWS","startIndex":i,"endIndex":i+1},
-                "properties":{"pixelSize":32},"fields":"pixelSize"}})
+            paint(i,blue,white,13,46)
         for i in header_rows:
-            formatting.append({"repeatCell":{"range":{"sheetId":ws.id,
-                "startRowIndex":i,"endRowIndex":i+1,"startColumnIndex":0,
-                "endColumnIndex":width},
-                "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.92,"green":0.95,"blue":0.98},
-                    "textFormat":{"bold":True,"fontSize":10}}},
-                "fields":"userEnteredFormat.backgroundColor,userEnteredFormat.textFormat"}})
-            formatting.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
-                "dimension":"ROWS","startIndex":i,"endIndex":i+1},
-                "properties":{"pixelSize":42},"fields":"pixelSize"}})
-        formatting.append({"repeatCell":{"range":{"sheetId":ws.id,
-            "startRowIndex":0,"endRowIndex":1,"startColumnIndex":0,
-            "endColumnIndex":width},
-            "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.13,"green":0.20,"blue":0.32},
-                "textFormat":{"bold":True,"fontSize":12,
-                    "foregroundColor":{"red":1,"green":1,"blue":1}}}},
-            "fields":"userEnteredFormat.backgroundColor,userEnteredFormat.textFormat"}})
-        formatting.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
-            "dimension":"ROWS","startIndex":0,"endIndex":1},
-            "properties":{"pixelSize":42},"fields":"pixelSize"}})
-        players_book.batch_update({"requests":formatting})
+            paint(i,pale,ink,10,46)
+        # White margins between cards and softly striped data rows.
+        for i,row in enumerate(rows):
+            if i in section_rows or i in header_rows or i<3:
+                continue
+            if not any(str(v).strip() for v in row):
+                requests.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
+                    "dimension":"ROWS","startIndex":i,"endIndex":i+1},
+                    "properties":{"pixelSize":22},"fields":"pixelSize"}})
+            elif len(row)>1:
+                requests.append({"repeatCell":{"range":{"sheetId":ws.id,
+                    "startRowIndex":i,"endRowIndex":i+1,"startColumnIndex":0,
+                    "endColumnIndex":width},
+                    "cell":{"userEnteredFormat":{"backgroundColor":
+                        white if i%2 else {"red":0.97,"green":0.98,"blue":0.99},
+                        "verticalAlignment":"MIDDLE","wrapStrategy":"WRAP",
+                        "textFormat":{"fontSize":10,"foregroundColor":ink}}},
+                    "fields":"userEnteredFormat"}})
+                requests.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
+                    "dimension":"ROWS","startIndex":i,"endIndex":i+1},
+                    "properties":{"pixelSize":34},"fields":"pixelSize"}})
+        players_book.batch_update({"requests":requests})
     guide = [
         ["CAMPO","SIGNIFICADO"],
         ["MATCH_ID","Identificador único de partida de Riot; LA2_ seguido del número"],
