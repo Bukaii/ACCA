@@ -211,7 +211,7 @@ def sync(book, players_book, ids=(), force=False):
     ensure(book)
     setup_players(book,players_book)
     members = resolve_players(players_book)
-    queue = records(book,"PARTIDAS_PENDIENTES")
+    queue = records(book,"REGISTRO") if "REGISTRO" in [w.title for w in book.worksheets()] else records(book,"PARTIDAS_PENDIENTES")
     existing = {str(r.get("MATCH_ID","")).upper() for r in queue}
     for mid in ids:
         mid = mid.strip().upper()
@@ -276,6 +276,7 @@ def sync(book, players_book, ids=(), force=False):
         write_rows(book,"RAW_JUGADORES",HEADERS_PLAYER,upsert_participants(old_players,incoming_players))
     write_rows(book,"PARTIDAS_PENDIENTES",TABS["PARTIDAS_PENDIENTES"],
                [[r.get(k,"") for k in TABS["PARTIDAS_PENDIENTES"]] for r in queue])
+    write_view(book,"REGISTRO",GENERAL["REGISTRO"],[[r.get(k,"") for k in GENERAL["REGISTRO"]] for r in queue])
     if changed or force:
         rebuild(book)
     write_rows(book,"SISTEMA",TABS["SISTEMA"],[["ULTIMA_EJECUCION_UTC",datetime.now(timezone.utc).isoformat()],
