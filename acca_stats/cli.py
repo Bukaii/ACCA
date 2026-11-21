@@ -273,6 +273,9 @@ def rebuild(book):
 def normalize_match_id(value):
     """Accept the numeric match ID copied from the LAS client."""
     mid = str(value).strip().upper()
+    # Google Sheets may display a pasted numeric ID with thousands separators.
+    if mid.count(".") and all(part.isdigit() for part in mid.split(".")) and all(len(part) == 3 for part in mid.split(".")[1:]):
+        mid = mid.replace(".", "")
     if mid.isdigit():
         return "LA2_" + mid
     return mid
@@ -343,7 +346,8 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
     for row in queue:
         if str(row.get("ESTADO","")).upper() not in ("","PENDIENTE"):
             continue
-        mid = str(row.get("MATCH_ID","")).upper().strip()
+        mid = normalize_match_id(row.get("MATCH_ID", ""))
+        row["MATCH_ID"] = mid
         if not mid:
             continue
         route = PLATFORMS.get(mid.split("_",1)[0])
