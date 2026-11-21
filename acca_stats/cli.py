@@ -159,6 +159,26 @@ def rebuild(book):
         role_entries.append({"RESULTADO":m["RESULTADO"],"KEY":str(p.get("ALIAS",""))+" | "+str(p.get("ROL",""))})
     write_rows(book,"STATS_JUGADORES",EXTRA_TABS["STATS_JUGADORES"],summary(player_entries,lambda r:r["KEY"]))
     write_rows(book,"STATS_ROLES",EXTRA_TABS["STATS_ROLES"],summary(role_entries,lambda r:r["KEY"]))
+    item_entries, comp_entries = [], []
+    champions_by_match = {}
+    for p in participants:
+        if p.get("ES_ACCA") != "SI" or p.get("EQUIPO_ACCA") != "SI":
+            continue
+        mid = str(p.get("MATCH_ID",""))
+        m = by_id.get(mid)
+        if not m:
+            continue
+        alias = str(p.get("ALIAS",""))
+        champion = str(p.get("CAMPEON",""))
+        champions_by_match.setdefault(mid, []).append(champion)
+        items = {item for item in str(p.get("ITEMS","")).split("|") if item.isdigit() and int(item)>0}
+        for item in items:
+            item_entries.append({"RESULTADO":m["RESULTADO"],"KEY":alias+" | "+champion+" | "+item})
+    for mid, champs in champions_by_match.items():
+        if len(champs)==5:
+            comp_entries.append({"RESULTADO":by_id[mid]["RESULTADO"],"KEY":" | ".join(sorted(champs))})
+    write_rows(book,"STATS_OBJETOS",EXTRA_TABS["STATS_OBJETOS"],summary(item_entries,lambda r:r["KEY"]))
+    write_rows(book,"STATS_COMPOSICIONES",EXTRA_TABS["STATS_COMPOSICIONES"],summary(comp_entries,lambda r:r["KEY"]))
 
 def sync(book, ids=(), force=False):
     ensure(book)
