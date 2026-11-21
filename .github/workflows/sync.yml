@@ -2,9 +2,6 @@ name: Sincronizar ACCA
 on:
   push:
     branches: [main]
-    paths:
-      - 'acca_stats/**'
-      - '.github/workflows/sync.yml'
   schedule:
     - cron: '7 * * * *'
   workflow_dispatch:
@@ -51,7 +48,13 @@ jobs:
           MATCH_IDS: ${{ inputs.match_ids }}
         run: |
           set -euo pipefail
-          OPERATION="${OPERATION:-sync}"
+          # Every push to main runs a complete sync and rebuild by default.
+          if [ "$GITHUB_EVENT_NAME" = "push" ] || [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            OPERATION="sync"
+            MATCH_IDS=""
+          else
+            OPERATION="${OPERATION:-sync}"
+          fi
           case "$OPERATION" in
             sync|rebuild|players|init|check)
               if [ -n "$MATCH_IDS" ]; then
