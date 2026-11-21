@@ -11,6 +11,7 @@ import requests
 from dotenv import load_dotenv
 from .core import TABS, HEADERS_MATCH, HEADERS_PLAYER, parse_match, upsert, summary
 from .analytics import EXTRA_TABS, archive, detailed_rows, timeline_rows, associate_builds, replace_by_match
+from .presentation import GENERAL, PLAYERS, ensure_tab, write_view, style, hide_legacy, build_general, build_players
 
 ROUTES = {"LAS":"americas","LAN":"americas","NA":"americas","BR":"americas",
           "EUW":"europe","EUNE":"europe","TR":"europe","RU":"europe",
@@ -41,8 +42,8 @@ def riot_get(url):
         return r.json()
     raise RuntimeError("Riot no respondió")
 
-def connect():
-    sheet_id = os.environ["GOOGLE_SHEET_ID"]
+def connect(key="GOOGLE_SHEET_ID"):
+    sheet_id = os.environ[key]
     if "/spreadsheets/d/" in sheet_id:
         sheet_id = sheet_id.split("/spreadsheets/d/",1)[1].split("/",1)[0]
     raw = os.getenv("GOOGLE_CREDENTIALS_JSON")
@@ -52,7 +53,7 @@ def connect():
         gc = gspread.service_account(filename=os.environ["GOOGLE_CREDENTIALS_FILE"], http_client=gspread.BackOffHTTPClient)
     return gc.open_by_key(sheet_id)
 
-def ensure(book):
+def ensure(book, players_book=None):
     """Add missing columns without moving or deleting existing user data."""
     for name, header in {**TABS, **EXTRA_TABS}.items():
         try:
@@ -78,6 +79,32 @@ def ensure(book):
             ws.update(range_name=rowcol_to_a1(1,len(existing)+1),
                       values=[missing])
             print(f"{name}: agregadas columnas {', '.join(missing)}; datos preservados")
+
+def setup_players(book, players_book):
+    """Copy player registry once; never discard a populated destination registry."""
+    dest = ensure_tab(players_book,"JUGADORES",TABS["JUGADORES"])
+    source = records(book,"JUGADORES")
+    existing = dest.get_all_records()
+    if source and not any(str(r.get("ALIAS","")).strip() for r in existing):
+        write_rows(players_book,"JUGADORES",TABS["JUGADORES"],
+                   [[r.get(k,"") for k in TABS["JUGADORES"]] for r in source])
+
+def present(book, players_book):
+    matches=records(book,"RAW_PARTIDAS")
+    participants=records(book,"RAW_JUGADORES")
+    details=records(book,"RAW_DETALLE")
+    write_view(book,"RESUMEN",GENERAL["RESUMEN"],build_general(matches))
+    write_view(book,"PARTIDAS",GENERAL["PARTIDAS"],[[m.get(k,"") for k in GENERAL["PARTIDAS"]] for m in matches])
+    queue=records(book,"PARTIDAS_PENDIENTES")
+    write_view(book,"REGISTRO",GENERAL["REGISTRO"],[[r.get(k,"") for k in GENERAL["REGISTRO"]] for r in queue])
+    ranking,history=build_players(matches,participants,details)
+    write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
+    write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
+    style(book,GENERAL)
+    style(players_book,PLAYERS)
+    # Historical RAW and old STATS remain available through unhide, never deleted.
+    hide_legacy(book,set(GENERAL))
+    hide_legacy(players_book,set(PLAYERS))
 
 def records(book, tab):
     return book.worksheet(tab).get_all_records()
@@ -180,9 +207,10 @@ def rebuild(book):
     write_rows(book,"STATS_OBJETOS",EXTRA_TABS["STATS_OBJETOS"],summary(item_entries,lambda r:r["KEY"]))
     write_rows(book,"STATS_COMPOSICIONES",EXTRA_TABS["STATS_COMPOSICIONES"],summary(comp_entries,lambda r:r["KEY"]))
 
-def sync(book, ids=(), force=False):
+def sync(book, players_book, ids=(), force=False):
     ensure(book)
-    members = resolve_players(book)
+    setup_players(book,players_book)
+    members = resolve_players(players_book)
     queue = records(book,"PARTIDAS_PENDIENTES")
     existing = {str(r.get("MATCH_ID","")).upper() for r in queue}
     for mid in ids:
@@ -252,6 +280,7 @@ def sync(book, ids=(), force=False):
         rebuild(book)
     write_rows(book,"SISTEMA",TABS["SISTEMA"],[["ULTIMA_EJECUCION_UTC",datetime.now(timezone.utc).isoformat()],
                                                ["RESULTADO","OK" if changed else "SIN_CAMBIOS"]])
+    present(book,players_book)
 
 def upsert_participants(old, new):
     keyed = {(str(r[0]).upper(),str(r[1])):list(r) for r in old if len(r)>1}
@@ -268,26 +297,35 @@ def main():
     add = sub.add_parser("add-match")
     add.add_argument("ids",nargs="+")
     args = parser.parse_args()
-    required = ["GOOGLE_SHEET_ID","RIOT_API_KEY"]
+    required = ["GOOGLE_SHEET_ID","GOOGLE_SHEET_ID_PLAYERS","RIOT_API_KEY"]
     required += [] if os.getenv("GOOGLE_CREDENTIALS_JSON") else ["GOOGLE_CREDENTIALS_FILE"]
     missing = [k for k in required if not os.getenv(k)]
     if missing:
         parser.error("Faltan variables: "+", ".join(missing))
     try:
         book = connect()
+        players_book = connect("GOOGLE_SHEET_ID_PLAYERS")
+        if book.id == players_book.id:
+            raise ValueError("GOOGLE_SHEET_ID_PLAYERS debe ser una hoja diferente de GOOGLE_SHEET_ID")
         if args.command == "check":
             print("Google Sheets: OK")
             print("Riot API: validación efectiva al consultar una partida/jugador")
         elif args.command == "init":
             ensure(book)
+            setup_players(book,players_book)
+            present(book,players_book)
         elif args.command == "players":
             ensure(book)
-            resolve_players(book)
+            setup_players(book,players_book)
+            resolve_players(players_book)
+            present(book,players_book)
         elif args.command == "rebuild":
             ensure(book)
+            setup_players(book,players_book)
             rebuild(book)
+            present(book,players_book)
         else:
-            sync(book, getattr(args,"ids",()),args.command=="sync")
+            sync(book,players_book,getattr(args,"ids",()),args.command=="sync")
         print("Operación terminada")
     except Exception as exc:
         print(f"ERROR: {exc}",file=sys.stderr)
