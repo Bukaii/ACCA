@@ -47,9 +47,9 @@ def connect():
         sheet_id = sheet_id.split("/spreadsheets/d/",1)[1].split("/",1)[0]
     raw = os.getenv("GOOGLE_CREDENTIALS_JSON")
     if raw:
-        gc = gspread.service_account_from_dict(json.loads(raw))
+        gc = gspread.service_account_from_dict(json.loads(raw), http_client=gspread.BackOffHTTPClient)
     else:
-        gc = gspread.service_account(filename=os.environ["GOOGLE_CREDENTIALS_FILE"])
+        gc = gspread.service_account(filename=os.environ["GOOGLE_CREDENTIALS_FILE"], http_client=gspread.BackOffHTTPClient)
     return gc.open_by_key(sheet_id)
 
 def ensure(book):
