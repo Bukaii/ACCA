@@ -85,6 +85,29 @@ def hide_legacy(book,keep):
     if requests:
         book.batch_update({"requests":requests})
 
+_champion_names = {}
+
+def display_bans(value, version):
+    """Only presentation converts champion numeric IDs; raw values stay exportable."""
+    ids = [v.strip() for v in str(value or "").split("|") if v.strip()]
+    if not ids:
+        return "Sin baneos"
+    version = str(version or "").replace(",", ".")
+    if version not in _champion_names:
+        try:
+            import requests
+            response = requests.get(
+                f"https://ddragon.leagueoflegends.com/cdn/{version}.1/data/es_ES/champion.json",
+                timeout=12)
+            response.raise_for_status()
+            _champion_names[version] = {
+                str(c["key"]):c["name"] for c in response.json()["data"].values()
+            }
+        except Exception:
+            _champion_names[version] = {}
+    return " + ".join("Sin ban" if v in ("0", "-1") else _champion_names[version].get(v, "ID "+v) for v in ids)
+
+
 def build_general(matches):
     result=[]
     for label,key in (("GENERAL",lambda r:"ACCA"),
