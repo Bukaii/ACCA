@@ -80,6 +80,43 @@ async function archive(env,id,match,timeline) {
     body:JSON.stringify({match_id:id,match_path:mp,timeline_path:tp,match_sha256:await sha256(m.raw),timeline_sha256:await sha256(t.raw)})
   });
 }
+async function registerPlayer(env,aliasInput,riotInput) {
+  const alias=String(aliasInput||"").trim(), riotId=String(riotInput||"").trim();
+  if (!alias || alias.length>48 || !/^[\\p{L}\\p{N} _.-]+$/u.test(alias)) throw new Error("Alias inválido (máximo 48 caracteres).");
+  const separator=riotId.lastIndexOf("#");
+  if (separator<1 || separator===riotId.length-1 || riotId.length>100) throw new Error("Riot ID inválido. Usá Nombre#TAG.");
+  const gameName=riotId.slice(0,separator),tag=riotId.slice(separator+1);
+  let account=null;
+  for (const region of ["americas","europe","asia","sea"]) {
+    const url="https://"+region+".api.riotgames.com/riot/account/v1/accounts/by-riot-id/"+encodeURIComponent(gameName)+"/"+encodeURIComponent(tag);
+    const response=await fetch(url,{headers:{"X-Riot-Token":env.RIOT_API_KEY}});
+    if (response.ok) { account=await response.json(); break; }
+    if (response.status===404) continue;
+    if (response.status===429) throw new Error("Riot limitó las consultas. Intentá más tarde.");
+    if (response.status===401||response.status===403) throw new Error("Riot rechazó la API Key.");
+    throw new Error("Riot HTTP "+response.status);
+  }
+  if (!account?.puuid) throw new Error("No se encontró ese Riot ID.");
+  const aliasKey=alias.toLocaleLowerCase("es");
+  const existingRes=await supa(env,"/rest/v1/acca_player_accounts?select=puuid,alias_key,riot_id,riot_ids&puuid=eq."+encodeURIComponent(account.puuid));
+  const existing=(await existingRes.json())[0];
+  if (existing && existing.alias_key!==aliasKey) throw new Error("Esta cuenta ya pertenece al alias "+existing.alias_key+".");
+  const playerRes=await supa(env,"/rest/v1/acca_players?select=alias&alias_key=eq."+encodeURIComponent(aliasKey));
+  const player=(await playerRes.json())[0];
+  if (!player) await supa(env,"/rest/v1/acca_players?on_conflict=alias_key",{
+    method:"POST",headers:{"Content-Type":"application/json",Prefer:"resolution=ignore-duplicates"},
+    body:JSON.stringify({alias_key:aliasKey,alias})
+  });
+  const canonical=account.gameName&&account.tagLine?account.gameName+"#"+account.tagLine:riotId;
+  const ids=[...new Set([...(existing?.riot_ids||[]),...(existing?.riot_id?[existing.riot_id]:[]),canonical])];
+  await supa(env,"/rest/v1/acca_player_accounts?on_conflict=puuid",{
+    method:"POST",headers:{"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
+    body:JSON.stringify({puuid:account.puuid,alias_key:aliasKey,riot_id:canonical,riot_ids:ids,updated_at:new Date().toISOString()})
+  });
+  const accountsRes=await supa(env,"/rest/v1/acca_player_accounts?select=puuid&alias_key=eq."+encodeURIComponent(aliasKey));
+  const count=(await accountsRes.json()).length;
+  return (existing?"Cuenta actualizada":player?"Cuenta agregada":"Jugador creado")+": "+(player?.alias||alias)+" — "+canonical+". Cuentas vinculadas: "+count+".";
+}
 async function followup(env,appId,token,message) {
   if (!appId||!token) return;
   const res=await fetch("https://discord.com/api/v10/webhooks/"+appId+"/"+token,{
@@ -96,12 +133,23 @@ export default {
     let interaction;
     try { interaction=JSON.parse(body); } catch { return new Response("Invalid JSON",{status:400}); }
     if (interaction.type===1) return json({type:1});
-    if (interaction.type!==2||interaction.data?.name!=="partida") return json({type:4,data:{content:"Comando no reconocido.",flags:64}});
+    if (interaction.type!==2||!["partida","jugador"].includes(interaction.data?.name)) return json({type:4,data:{content:"Comando no reconocido.",flags:64}});
     const allowed=(env.DISCORD_ALLOWED_ROLE_IDS||"").split(",").map(x=>x.trim()).filter(Boolean);
     const roles=interaction.member?.roles||[];
     const administrator=(BigInt(interaction.member?.permissions||"0")&8n)!==0n;
     if (!interaction.guild_id||!(administrator||allowed.some(role=>roles.includes(role))))
       return json({type:4,data:{content:"No tenés permiso para registrar partidas.",flags:64}});
+    if (interaction.data.name==="jugador") {
+      const alias=interaction.data.options?.find(x=>x.name==="alias")?.value;
+      const riotId=interaction.data.options?.find(x=>x.name==="riot_id")?.value;
+      try {
+        const result=await registerPlayer(env,alias,riotId);
+        return json({type:4,data:{content:result,flags:64}});
+      } catch(error) {
+        console.error("Error registrando jugador",String(error));
+        return json({type:4,data:{content:String(error.message||error).slice(0,190),flags:64}});
+      }
+    }
     const id=normalize(interaction.data.options?.find(x=>x.name==="id")?.value);
     if (!id) return json({type:4,data:{content:"ID inválido. Ejemplo: LA2_1638914973",flags:64}});
     try {
