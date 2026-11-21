@@ -33,6 +33,9 @@ jobs:
             echo "::error::Configure CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID as GitHub Actions secrets."
             exit 1
           fi
+          # GitHub secrets sometimes include trailing newlines from copy/paste.
+          CLOUDFLARE_ACCOUNT_ID="$(printf %s "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
+          echo "CLOUDFLARE_ACCOUNT_ID length: ${#CLOUDFLARE_ACCOUNT_ID} (expected: 32)"
           if [[ ! "$CLOUDFLARE_ACCOUNT_ID" =~ ^[a-fA-F0-9]{32}$ ]]; then
             echo "::error::CLOUDFLARE_ACCOUNT_ID must be the 32-character hexadecimal Account ID, not a token, URL, or API key."
             exit 1
@@ -40,6 +43,7 @@ jobs:
 
       - name: Create queue if missing
         run: |
+          CLOUDFLARE_ACCOUNT_ID="$(printf %s "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
           set -euo pipefail
           API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues"
           STATUS=$(curl -sS -o /tmp/acca-queue-list.json -w '%{http_code}' \
@@ -69,4 +73,6 @@ jobs:
 
       - name: Deploy Worker and Queue bindings
         working-directory: cloudflare
-        run: npx --yes wrangler@4 deploy
+        run: |
+          export CLOUDFLARE_ACCOUNT_ID="$(printf %s "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
+          npx --yes wrangler@4 deploy
