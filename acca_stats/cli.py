@@ -10,6 +10,7 @@ import gspread
 import requests
 from dotenv import load_dotenv
 from .core import TABS, HEADERS_MATCH, HEADERS_PLAYER, parse_match, upsert, summary
+from .analytics import EXTRA_TABS, archive, detailed_rows, timeline_rows, associate_builds, replace_by_match
 
 ROUTES = {"LAS":"americas","LAN":"americas","NA":"americas","BR":"americas",
           "EUW":"europe","EUNE":"europe","TR":"europe","RU":"europe",
@@ -53,7 +54,7 @@ def connect():
 
 def ensure(book):
     """Add missing columns without moving or deleting existing user data."""
-    for name, header in TABS.items():
+    for name, header in {**TABS, **EXTRA_TABS}.items():
         try:
             ws = book.worksheet(name)
         except gspread.WorksheetNotFound:
@@ -141,6 +142,17 @@ def rebuild(book):
         if m:
             entries.append({"RESULTADO":m["RESULTADO"],"KEY":str(p.get("ALIAS",""))+" | "+str(p.get("CAMPEON",""))})
     write_rows(book,"STATS_CAMPEONES",TABS["STATS_CAMPEONES"],summary(entries,lambda r:r["KEY"]))
+    player_entries,role_entries=[],[]
+    for p in participants:
+        if p.get("ES_ACCA") != "SI" or p.get("EQUIPO_ACCA") != "SI":
+            continue
+        m = by_id.get(str(p.get("MATCH_ID","")))
+        if not m:
+            continue
+        player_entries.append({"RESULTADO":m["RESULTADO"],"KEY":str(p.get("ALIAS",""))})
+        role_entries.append({"RESULTADO":m["RESULTADO"],"KEY":str(p.get("ALIAS",""))+" | "+str(p.get("ROL",""))})
+    write_rows(book,"STATS_JUGADORES",EXTRA_TABS["STATS_JUGADORES"],summary(player_entries,lambda r:r["KEY"]))
+    write_rows(book,"STATS_ROLES",EXTRA_TABS["STATS_ROLES"],summary(role_entries,lambda r:r["KEY"]))
 
 def sync(book, ids=(), force=False):
     ensure(book)
@@ -156,10 +168,10 @@ def sync(book, ids=(), force=False):
             for row in queue:
                 if str(row.get("MATCH_ID","")).upper() == mid:
                     row["ESTADO"]="PENDIENTE"
-    matches = [list(r.values()) for r in []]
-    old_matches = book.worksheet("RAW_PARTIDAS").get_all_values()[1:]
-    old_players = book.worksheet("RAW_JUGADORES").get_all_values()[1:]
+    old_matches = [[r.get(k,"") for k in HEADERS_MATCH] for r in records(book,"RAW_PARTIDAS")]
+    old_players = [[r.get(k,"") for k in HEADERS_PLAYER] for r in records(book,"RAW_JUGADORES")]
     incoming_matches, incoming_players = [],[]
+    advanced = {name: [] for name in ("RAW_RIOT_ARCHIVO","RAW_EVENTOS","RAW_EQUIPOS","RAW_DETALLE","RAW_BUILDS")}
     changed = False
     for row in queue:
         if str(row.get("ESTADO","")).upper() not in ("","PENDIENTE"):
@@ -174,6 +186,16 @@ def sync(book, ids=(), force=False):
         try:
             data = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}")
             match,players = parse_match(data,members,str(row.get("LADO_ACCA","")).strip() or None)
+            timeline = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}/timeline")
+            side = 100 if match[4] == "AZUL" else 200
+            detail, teams = detailed_rows(data,members,side)
+            events, builds = timeline_rows(mid,timeline)
+            advanced["RAW_RIOT_ARCHIVO"].extend(archive(mid,"MATCH",data))
+            advanced["RAW_RIOT_ARCHIVO"].extend(archive(mid,"TIMELINE",timeline))
+            advanced["RAW_EVENTOS"].extend(events)
+            advanced["RAW_EQUIPOS"].extend(teams)
+            advanced["RAW_DETALLE"].extend(detail)
+            advanced["RAW_BUILDS"].extend(associate_builds(builds,data))
             incoming_matches.append(match)
             incoming_players.extend(players)
             row["ESTADO"],row["MENSAJE"]="PROCESADA",""
@@ -186,13 +208,18 @@ def sync(book, ids=(), force=False):
                 row["MENSAJE"]=str(exc)[:150]
         except ValueError as exc:
             row["ESTADO"],row["MENSAJE"]="ERROR",str(exc)[:150]
-        except (RuntimeError,requests.RequestException):
-            # Abort: keep current and subsequent items pending for a future retry.
-            break
+        except (RuntimeError,requests.RequestException) as exc:
+            raise RuntimeError(f"Sincronización detenida en {mid}: {exc}") from exc
     if changed:
+        ids_processed = [m[0] for m in incoming_matches]
+        for tab, rows in advanced.items():
+            header = EXTRA_TABS[tab]
+            existing = [[r.get(k,"") for k in header] for r in records(book,tab)]
+            for processed_id in ids_processed:
+                existing = replace_by_match(existing,[r for r in rows if r[0]==processed_id],processed_id)
+            write_rows(book,tab,header,existing)
         write_rows(book,"RAW_PARTIDAS",HEADERS_MATCH,upsert(old_matches,incoming_matches))
-        write_rows(book,"RAW_JUGADORES",HEADERS_PLAYER,upsert(old_players,incoming_players,index=0) if False else
-                   upsert_participants(old_players,incoming_players))
+        write_rows(book,"RAW_JUGADORES",HEADERS_PLAYER,upsert_participants(old_players,incoming_players))
     write_rows(book,"PARTIDAS_PENDIENTES",TABS["PARTIDAS_PENDIENTES"],
                [[r.get(k,"") for k in TABS["PARTIDAS_PENDIENTES"]] for r in queue])
     if changed or force:
