@@ -36,7 +36,17 @@ def load(match_id, kind):
                             headers=_headers(), timeout=40)
     if response.status_code == 404:
         return None
-    response.raise_for_status()
+    if response.status_code == 400:
+        try:
+            error = response.json()
+        except ValueError:
+            error = {}
+        message = str(error.get("message", "")).lower()
+        code = str(error.get("statusCode", ""))
+        if code == "404" or "not found" in message or "does not exist" in message:
+            return None
+    if not response.ok:
+        raise RuntimeError(f"Supabase Storage download {response.status_code}: {response.text[:1200]}")
     return json.loads(gzip.decompress(response.content).decode("utf-8"))
 
 def store(match_id, kind, data):
