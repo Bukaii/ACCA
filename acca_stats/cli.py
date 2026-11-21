@@ -322,6 +322,94 @@ def save_submission_queue(book, queue):
                    [[row.get(key, "") for key in header] for row in merged])
 
 
+def expanded_match(data, match, members):
+    """Populate the existing full RAW_PARTIDAS schema from Riot's payload."""
+    info = data["info"]
+    ps = info["participants"]
+    side = 100 if match[4] == "AZUL" else 200
+    own = [p for p in ps if p["teamId"] == side]
+    rivals = [p for p in ps if p["teamId"] != side]
+    teams = {t["teamId"]: t for t in info.get("teams", [])}
+    def objective(team, name):
+        return (teams.get(team, {}).get("objectives", {}).get(name) or {}).get("kills", 0)
+    def bans(team):
+        return "|".join(str(b.get("championId", 0)) for b in teams.get(team, {}).get("bans", []))
+    duration = info.get("gameDuration", 0)
+    if duration > 100000:
+        duration /= 1000
+    from datetime import datetime, timezone
+    created = info.get("gameCreation", 0)
+    date = datetime.fromtimestamp(created / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if created else ""
+    version = str(info.get("gameVersion", ""))
+    values = {
+        "MATCH_ID": match[0], "FUENTE": "RIOT", "FECHA_UTC": date,
+        "DURACION_SEG": int(duration), "MODO": info.get("gameMode", ""),
+        "TIPO": info.get("gameType", ""), "COLA_ID": info.get("queueId", ""),
+        "VERSION": ".".join(version.split(".")[:2]), "PARCHE": ".".join(version.split(".")[:2]),
+        "PLATAFORMA": str(match[0]).split("_")[0], "LADO_ACCA": match[4],
+        "RESULTADO": match[5], "EQUIPO_ACCA": " + ".join(sorted(members[p["puuid"]] for p in own if p.get("puuid") in members)),
+        "INTEGRANTES": " + ".join(sorted(members[p["puuid"]] for p in own if p.get("puuid") in members)),
+        "N_ACCA": match[7],
+        "COMPOSICION_ACCA": " + ".join(sorted(p.get("championName", "") for p in own)),
+        "COMPOSICION_RIVAL": " + ".join(sorted(p.get("championName", "") for p in rivals)),
+        "BANS_ACCA": bans(side), "BANS_RIVAL": bans(300-side),
+        "KILLS_ACCA": sum(p.get("kills", 0) for p in own),
+        "KILLS_RIVAL": sum(p.get("kills", 0) for p in rivals),
+        "ORO_ACCA": sum(p.get("goldEarned", 0) for p in own),
+        "ORO_RIVAL": sum(p.get("goldEarned", 0) for p in rivals),
+        "TIMELINE": "SI", "ACTUALIZADA_UTC": datetime.now(timezone.utc).isoformat(),
+    }
+    for key, objective_name in (("TORRES", "tower"), ("DRAGONES", "dragon"),
+                                 ("BARONES", "baron"), ("HERALDOS", "riftHerald"),
+                                 ("INHIBIDORES", "inhibitor")):
+        values[key + "_ACCA"] = objective(side, objective_name)
+        values[key + "_RIVAL"] = objective(300-side, objective_name)
+    return values
+
+
+def expanded_players(data, members, match):
+    """Populate all supported RAW_JUGADORES columns by name."""
+    info = data["info"]
+    side = 100 if match[4] == "AZUL" else 200
+    duration = info.get("gameDuration", 0)
+    if duration > 100000:
+        duration /= 1000
+    minutes = max(duration / 60, 1)
+    team_kills = {team: sum(p.get("kills", 0) for p in info["participants"] if p["teamId"] == team)
+                  for team in (100, 200)}
+    output = []
+    for p in info["participants"]:
+        puuid = p.get("puuid", "")
+        kills, deaths, assists = (p.get(k, 0) for k in ("kills", "deaths", "assists"))
+        cs = p.get("totalMinionsKilled", 0) + p.get("neutralMinionsKilled", 0)
+        items = "|".join(str(p.get(f"item{i}", 0)) for i in range(7))
+        values = {
+            "MATCH_ID": match[0], "PARTICIPANTE_ID": p.get("participantId", ""),
+            "ES_ACCA": "SI" if puuid in members else "NO",
+            "ALIAS": members.get(puuid, ""), "RIOT_ID": p.get("riotIdGameName", "") + "#" + p.get("riotIdTagline", ""),
+            "PUUID": puuid, "LADO": "AZUL" if p["teamId"] == 100 else "ROJO",
+            "EQUIPO_ACCA": "SI" if p["teamId"] == side else "NO",
+            "RESULTADO": match[5] if p["teamId"] == side else ("DERROTA" if match[5] == "VICTORIA" else "VICTORIA"),
+            "CAMPEON": p.get("championName", ""), "ROL": p.get("teamPosition", ""),
+            "KILLS": kills, "DEATHS": deaths, "ASSISTS": assists,
+            "KDA": round((kills + assists) / max(deaths, 1), 4),
+            "DANO_CAMPEONES": p.get("totalDamageDealtToChampions", 0),
+            "DANO": p.get("totalDamageDealtToChampions", 0),
+            "DANO_RECIBIDO": p.get("totalDamageTaken", 0),
+            "ORO": p.get("goldEarned", 0), "CS": cs, "CS_MIN": round(cs / minutes, 3),
+            "VISION": p.get("visionScore", 0), "CENTINELAS_COLOCADOS": p.get("wardsPlaced", 0),
+            "CENTINELAS_DESTRUIDOS": p.get("wardsKilled", 0),
+            "CONTROL_WARDS": p.get("visionWardsBoughtInGame", 0),
+            "NIVEL": p.get("champLevel", 0), "DANO_OBJETIVOS": p.get("damageDealtToObjectives", 0),
+            "DANO_TORRES": p.get("damageDealtToTurrets", 0),
+            "PARTICIPACION_KILLS": round(100 * (kills + assists) / max(team_kills[p["teamId"]], 1), 2),
+            "HECHIZO_1": p.get("summoner1Id", 0), "HECHIZO_2": p.get("summoner2Id", 0),
+            "ITEMS_FINALES": items, "ITEMS": items, "TRINKET": p.get("item6", 0),
+        }
+        output.append(values)
+    return output
+
+
 def sync(book, players_book, ids=(), force=False, refresh_ids=False):
     ensure(book)
     setup_players(book,players_book)
@@ -344,8 +432,10 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
                 if str(row.get("MATCH_ID","")).upper() == mid:
                     row["ESTADO"]="PENDIENTE"
                     row["MENSAJE"]=""
-    old_matches = [[r.get(k,"") for k in HEADERS_MATCH] for r in records(book,"RAW_PARTIDAS")]
-    old_players = [[r.get(k,"") for k in HEADERS_PLAYER] for r in records(book,"RAW_JUGADORES")]
+    match_columns = book.worksheet("RAW_PARTIDAS").row_values(1)
+    player_columns = book.worksheet("RAW_JUGADORES").row_values(1)
+    old_matches = [[r.get(k,"") for k in match_columns] for r in records(book,"RAW_PARTIDAS")]
+    old_players = [[r.get(k,"") for k in player_columns] for r in records(book,"RAW_JUGADORES")]
     incoming_matches, incoming_players = [],[]
     advanced = {name: [] for name in ("RAW_RIOT_ARCHIVO","RAW_EVENTOS","RAW_EQUIPOS","RAW_DETALLE","RAW_BUILDS")}
     changed = False
@@ -373,8 +463,10 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
             advanced["RAW_EQUIPOS"].extend(teams)
             advanced["RAW_DETALLE"].extend(detail)
             advanced["RAW_BUILDS"].extend(associate_builds(builds,data))
-            incoming_matches.append(match)
-            incoming_players.extend(players)
+            match_values = expanded_match(data, match, members)
+            incoming_matches.append([match_values.get(k, "") for k in match_columns])
+            incoming_players.extend([[p.get(k, "") for k in player_columns]
+                                     for p in expanded_players(data, members, match)])
             row["ESTADO"],row["MENSAJE"]="PROCESADA",""
             row["PROCESADA_UTC"]=datetime.now(timezone.utc).isoformat()
             changed=True
@@ -395,8 +487,8 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
             for processed_id in ids_processed:
                 existing = replace_by_match(existing,[r for r in rows if r[0]==processed_id],processed_id)
             write_rows(book,tab,header,existing)
-        write_rows(book,"RAW_PARTIDAS",HEADERS_MATCH,upsert(old_matches,incoming_matches))
-        write_rows(book,"RAW_JUGADORES",HEADERS_PLAYER,upsert_participants(old_players,incoming_players))
+        write_rows(book,"RAW_PARTIDAS",match_columns,upsert(old_matches,incoming_matches))
+        write_rows(book,"RAW_JUGADORES",player_columns,upsert_participants(old_players,incoming_players))
     save_submission_queue(book, queue)
     if changed or force:
         rebuild(book)
