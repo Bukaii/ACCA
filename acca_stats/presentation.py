@@ -63,6 +63,16 @@ def style(book,names):
             {"updateDimensionProperties":{"range":{"sheetId":gid,"dimension":"ROWS","startIndex":0,"endIndex":1},"properties":{"pixelSize":38},"fields":"pixelSize"}},
             {"updateDimensionProperties":{"range":{"sheetId":gid,"dimension":"COLUMNS","startIndex":0,"endIndex":width},"properties":{"pixelSize":155},"fields":"pixelSize"}},
         ])
+        # Wide identifiers and compositions must remain readable, not clipped.
+        wide = {"RESUMEN":[1], "RENDIMIENTO":[1], "COMPOSICIONES":[0],
+                "PARTIDAS":[6,8,9,10,11], "DETALLE DE PARTIDAS":[11,13,14,15,16],
+                "GUIA":[1]}
+        for column in wide.get(name,[]):
+            if column < ws.col_count:
+                requests.append({"updateDimensionProperties":{"range":{"sheetId":gid,
+                    "dimension":"COLUMNS","startIndex":column,"endIndex":column+1},
+                    "properties":{"pixelSize":420 if name == "GUIA" else 320},
+                    "fields":"pixelSize"}})
         band={"range":{"sheetId":gid,"startRowIndex":0,"endRowIndex":end,"startColumnIndex":0,"endColumnIndex":width},
               "rowProperties":{"headerColor":NAVY,"firstBandColor":WHITE,"secondBandColor":PALE}}
         if existing.get(gid):
