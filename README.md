@@ -71,3 +71,13 @@ Si la ejecución falla, las estadísticas pueden quedar sin actualizar. Consult�
 - Las estadísticas avanzadas de objetos, timeline, gráficas y partidas manuales todavía no están disponibles en esta versión.
 
 Si aparece un error, comunicá al administrador el nombre de la pestaña, el ID de partida (si corresponde) y el texto de `MENSAJE`. Nunca compartas secretos.
+
+## Datos avanzados de partidas
+
+El sistema genera nuevas pestañas: `RAW_DETALLE` (KDA, daño por tipo, oro/min, CS/min, runas, hechizos, visión, curación y escudos), `RAW_EQUIPOS` (objetivos y baneos), `RAW_EVENTOS` (eventos del timeline), `RAW_BUILDS` (compras y ventas), `STATS_JUGADORES` y `STATS_ROLES`.
+
+`RAW_RIOT_ARCHIVO` conserva comprimidas las respuestas completas de Riot (detalle de partida y timeline) para no perder campos que todavía no se muestran en tablas. No edites ninguna pestaña `RAW_*`.
+
+Las partidas procesadas antes de esta ampliación no tienen los datos avanzados automáticamente. El administrador puede ponerlas en `PENDIENTE` para reprocesarlas, siempre que Riot siga ofreciendo esos datos.
+
+Las tablas nuevas tienen encabezados congelados y filtros para explorar registros. El procesamiento se hace exclusivamente en GitHub Actions.
