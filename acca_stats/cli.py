@@ -173,11 +173,20 @@ def present(book, players_book):
         # Dashboard-like visual hierarchy: a legible identity banner,
         # distinct section cards, separated table headers and breathing room.
         # Formatting only: never delete, move or truncate historical metrics.
+        section_titles = {"Resumen histórico","Por campeón","Por rol","Objetos finales más usados",
+                          "Builds por campeón (orden real de compra)","Compañeros",
+                          "Evolución mensual","Historial (últimas 50 partidas)",
+                          "HISTORIAL DE PARTIDAS REGISTRADAS"}
         section_rows = [i for i,row in enumerate(rows)
-                        if len(row)==1 and row[0] and i>2]
+                        if row and str(row[0]).strip() in section_titles]
+        description_rows = [i for i,row in enumerate(rows)
+                            if i>2 and len(row)==1 and str(row[0]).strip()
+                            and i not in section_rows and row[0] != "Sin datos todavía"]
+        empty_state_rows = [i for i,row in enumerate(rows)
+                            if row and row[0]=="Sin datos todavía"]
         header_rows = [i for i,row in enumerate(rows)
                        if len(row)>1 and row[0] in
-                       ("PARTIDAS","CAMPEON","ROL","OBJETO","MATCH_ID")]
+                       ("PARTIDAS","CAMPEON","ROL","OBJETO","MATCH_ID","COMPAÑERO","MES","FECHA_UTC")]
         navy = {"red":0.12,"green":0.19,"blue":0.30}
         blue = {"red":0.19,"green":0.32,"blue":0.49}
         pale = {"red":0.91,"green":0.94,"blue":0.98}
@@ -222,12 +231,21 @@ def present(book, players_book):
             if i < len(rows):
                 paint(i,pale,ink,10,36 if i==1 else 58,False)
         for i in section_rows:
-            paint(i,blue,white,13,46)
+            paint(i,blue,white,15,58)
+            requests.append({"updateBorders":{"range":{"sheetId":ws.id,
+                "startRowIndex":i,"endRowIndex":i+1,
+                "startColumnIndex":0,"endColumnIndex":width},
+                "top":{"style":"SOLID_MEDIUM","color":navy}}})
+        for i in description_rows:
+            paint(i,{"red":0.95,"green":0.97,"blue":0.99},ink,10,46,False)
+        for i in empty_state_rows:
+            paint(i,{"red":0.96,"green":0.97,"blue":0.98},
+                  {"red":0.40,"green":0.46,"blue":0.53},10,46,False)
         for i in header_rows:
             paint(i,pale,ink,10,46)
         # White margins between cards and softly striped data rows.
         for i,row in enumerate(rows):
-            if i in section_rows or i in header_rows or i<3:
+            if i in section_rows or i in description_rows or i in empty_state_rows or i in header_rows or i<3:
                 continue
             if not any(str(v).strip() for v in row):
                 requests.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
@@ -255,7 +273,7 @@ def present(book, players_book):
             requests.insert(0,{"unmergeCells":{"range":merged}})
         # Merge only rows known to contain a single value in column A.
         # Never merge table headers or statistics, so no data is lost.
-        for i in [0,1,2]+section_rows:
+        for i in [0,1,2]+section_rows+description_rows+empty_state_rows:
             if i < len(rows) and len(rows[i])==1:
                 requests.append({"mergeCells":{"range":{"sheetId":ws.id,
                     "startRowIndex":i,"endRowIndex":i+1,
