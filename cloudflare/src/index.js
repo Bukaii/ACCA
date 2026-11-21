@@ -125,7 +125,25 @@ async function followup(env,appId,token,message) {
   });
   if (!res.ok) console.error("Discord followup HTTP",res.status);
 }
+async function registerCommands(env) {
+  if (!env.DISCORD_BOT_TOKEN||!env.DISCORD_APPLICATION_ID) throw new Error("Discord Bot Token/Application ID missing");
+  const commands=[
+    {name:"partida",description:"Archivar una partida oficial de ACCA",options:[{name:"id",description:"ID de Riot (ej. LA2_1638964338)",type:3,required:true}]},
+    {name:"jugador",description:"Vincular una cuenta de Riot a un alias ACCA",options:[
+      {name:"alias",description:"Alias estable del jugador",type:3,required:true},
+      {name:"riot_id",description:"Nombre#TAG de Riot",type:3,required:true}
+    ]}
+  ];
+  for (const command of commands) {
+    const res=await fetch("https://discord.com/api/v10/applications/"+env.DISCORD_APPLICATION_ID+"/commands",{
+      method:"POST",headers:{"Authorization":"Bot "+env.DISCORD_BOT_TOKEN,"Content-Type":"application/json"},
+      body:JSON.stringify(command)
+    });
+    if (!res.ok) throw new Error("Discord command "+command.name+" HTTP "+res.status+": "+(await res.text()).slice(0,180));
+  }
+}
 export default {
+  async scheduled(event,env,ctx) { ctx.waitUntil(registerCommands(env)); },
   async fetch(request,env) {
     if (request.method!=="POST") return new Response("ACCA Discord Bot");
     const body=await request.text();
