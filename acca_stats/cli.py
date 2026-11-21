@@ -124,25 +124,45 @@ def present(book, players_book):
         champion_ws.batch_clear([f"{first_extra}1:{last_extra}"])
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
-    # Preserve the original, extensive per-player reports in the player workbook.
-    # The historical J_* sheets contain champion, role, item, ordered builds,
-    # teammates, monthly evolution, and other calculated sections.
-    for source in book.worksheets():
-        if not source.title.startswith("J_"):
+    # Rebuild individual player reports from canonical data, not stale J_* legacy layouts.
+    player_header = ["MATCH_ID","FECHA_UTC","MODO","RESULTADO","CAMPEON","ROL",
+                     "KILLS","DEATHS","ASSISTS","KDA","CS_MIN","ORO","DANO","VISION","ITEMS"]
+    by_match = {str(m.get("MATCH_ID")):m for m in matches}
+    player_aliases = {str(p.get("ALIAS","")) for p in participants
+                      if p.get("ES_ACCA") == "SI" and p.get("ALIAS")}
+    player_aliases |= {str(r.get("ALIAS","")) for r in records(players_book,"JUGADORES")
+                       if r.get("ALIAS")}
+    for alias in sorted(player_aliases):
+        if not alias:
             continue
-        values = source.get_all_values()
-        if not values:
-            continue
-        destination = ensure_tab(players_book, source.title, values[0])
-        if destination.col_count < max(map(len, values)):
-            destination.add_cols(max(map(len, values)) - destination.col_count)
-        if destination.row_count < len(values):
-            destination.add_rows(len(values) - destination.row_count)
-        destination.update(range_name="A1", values=values, value_input_option="RAW")
-        # A generated player report must not retain stale trailing rows.
-        old_rows = destination.get_all_values()
-        if len(old_rows) > len(values):
-            destination.batch_clear([f"A{len(values)+1}:Z{len(old_rows)}"])
+        name = "J_" + alias[:90]
+        player_rows = []
+        for p in participants:
+            if p.get("ALIAS") != alias or p.get("ES_ACCA") != "SI" or p.get("EQUIPO_ACCA") != "SI":
+                continue
+            match = by_match.get(str(p.get("MATCH_ID")))
+            if not match:
+                continue
+            player_rows.append([p.get("MATCH_ID",""),match.get("FECHA_UTC",""),
+                match.get("MODO",""),match.get("RESULTADO",""),p.get("CAMPEON",""),
+                p.get("ROL",""),p.get("KILLS",0),p.get("DEATHS",0),p.get("ASSISTS",0),
+                p.get("KDA",""),p.get("CS_MIN",""),p.get("ORO",0),
+                p.get("DANO_CAMPEONES",p.get("DANO",0)),
+                p.get("VISION",0),p.get("ITEMS","")])
+        ws = ensure_tab(players_book,name,player_header)
+        # Legacy reports had merged sections and dark bars; clear those formats.
+        if ws._properties.get("merges"):
+            players_book.batch_update({"requests":[{"unmergeCells":{"range":{
+                "sheetId":ws.id,"startRowIndex":0,"endRowIndex":ws.row_count,
+                "startColumnIndex":0,"endColumnIndex":ws.col_count}}}]})
+        players_book.batch_update({"requests":[{"repeatCell":{"range":{"sheetId":ws.id},
+            "cell":{"userEnteredFormat":{}},"fields":"userEnteredFormat"}}]})
+        write_view(players_book,name,player_header,player_rows)
+        # Remove all leftover legacy values beyond the new report's columns.
+        if ws.col_count > len(player_header):
+            from gspread.utils import rowcol_to_a1
+            col = rowcol_to_a1(1,len(player_header)+1).rstrip("1")
+            ws.batch_clear([f"{col}1:{rowcol_to_a1(ws.row_count,ws.col_count)}"])
     guide = [
         ["CAMPO","SIGNIFICADO"],
         ["MATCH_ID","Identificador único de partida de Riot; LA2_ seguido del número"],
@@ -156,11 +176,11 @@ def present(book, players_book):
         ["CONFIANZA BAJA","Pocas partidas observadas: el resultado todavía no es fiable"],
         ["CONFIANZA MEDIA / ALTA","Más partidas observadas; los umbrales dependen de la configuración del análisis"],
         ["RAW_*","Tablas originales para exportación futura; no modificar manualmente"],
-        ["IDENTIDADES","Una fila por Riot ID adicional o anterior, usando el mismo ALIAS ACCA"],
+        ["JUGADORES","Una fila por Riot ID, repetí ALIAS para agregar cuentas adicionales del mismo jugador"],
     ]
     for destination in (book, players_book):
         write_view(destination,"GUIA",guide[0],guide[1:])
-    player_names = (set(PLAYERS) - {"IDENTIDADES"}) | {"GUIA"} | {ws.title for ws in players_book.worksheets()
+    player_names = set(PLAYERS) | {"GUIA"} | {ws.title for ws in players_book.worksheets()
                                    if ws.title.startswith("J_")}
     style(players_book,player_names)
     # Keep internal identifiers unchanged for data ingestion and rebuilding.
