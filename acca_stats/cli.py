@@ -270,7 +270,7 @@ def rebuild(book):
     write_rows(book,"STATS_OBJETOS",EXTRA_TABS["STATS_OBJETOS"],summary(item_entries,lambda r:r["KEY"]))
     write_rows(book,"STATS_COMPOSICIONES",EXTRA_TABS["STATS_COMPOSICIONES"],summary(comp_entries,lambda r:r["KEY"]))
 
-def sync(book, players_book, ids=(), force=False):
+def sync(book, players_book, ids=(), force=False, refresh_ids=False):
     ensure(book)
     setup_players(book,players_book)
     members = resolve_players(players_book)
@@ -281,10 +281,11 @@ def sync(book, players_book, ids=(), force=False):
         if mid and mid not in existing:
             queue.append({"MATCH_ID":mid,"ESTADO":"PENDIENTE","MENSAJE":"","LADO_ACCA":"","PROCESADA_UTC":""})
             existing.add(mid)
-        elif mid:
+        elif mid and refresh_ids:
             for row in queue:
                 if str(row.get("MATCH_ID","")).upper() == mid:
                     row["ESTADO"]="PENDIENTE"
+                    row["MENSAJE"]=""
     old_matches = [[r.get(k,"") for k in HEADERS_MATCH] for r in records(book,"RAW_PARTIDAS")]
     old_players = [[r.get(k,"") for k in HEADERS_PLAYER] for r in records(book,"RAW_JUGADORES")]
     incoming_matches, incoming_players = [],[]
@@ -360,6 +361,8 @@ def main():
         sub.add_parser(name)
     add = sub.add_parser("add-match")
     add.add_argument("ids",nargs="+")
+    refresh = sub.add_parser("refresh-match")
+    refresh.add_argument("ids",nargs="+")
     args = parser.parse_args()
     required = ["GOOGLE_SHEET_ID","GOOGLE_SHEET_ID_PLAYERS","RIOT_API_KEY"]
     required += [] if os.getenv("GOOGLE_CREDENTIALS_JSON") else ["GOOGLE_CREDENTIALS_FILE"]
@@ -389,7 +392,7 @@ def main():
             rebuild(book)
             present(book,players_book)
         else:
-            sync(book,players_book,getattr(args,"ids",()),args.command=="sync")
+            sync(book,players_book,getattr(args,"ids",()),args.command in ("sync","refresh-match"),args.command=="refresh-match")
         print("Operación terminada")
     except Exception as exc:
         print(f"ERROR: {type(exc).__name__}: {exc!r}",file=sys.stderr)
