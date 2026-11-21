@@ -117,7 +117,7 @@ def present(book, players_book, matches=None, participants=None, details=None):
         gid=alias_tabs.get(alias)
         if gid is None:
             return alias
-        return '=HYPERLINK("'+base_url+str(gid)+'","'+alias.replace('"','""')+'")'
+        return '=HYPERLINK("'+base_url+str(gid)+'";"'+alias.replace('"','""')+'")'
     ranking=[[r[0],linked_alias(r[1]) if r[0]=="JUGADORES" else r[1],*r[2:]] for r in ranking]
     history=[[r[0],linked_alias(r[1]),*r[2:]] for r in history]
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
