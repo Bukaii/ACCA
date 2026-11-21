@@ -103,7 +103,28 @@ def present(book, players_book):
     ranking,history=build_players(matches,participants,details)
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
-    style(players_book,PLAYERS)
+    # Preserve the original, extensive per-player reports in the player workbook.
+    # The historical J_* sheets contain champion, role, item, ordered builds,
+    # teammates, monthly evolution, and other calculated sections.
+    for source in book.worksheets():
+        if not source.title.startswith("J_"):
+            continue
+        destination = ensure_tab(players_book, source.title, [])
+        values = source.get_all_values()
+        if not values:
+            continue
+        if destination.col_count < max(map(len, values)):
+            destination.add_cols(max(map(len, values)) - destination.col_count)
+        if destination.row_count < len(values):
+            destination.add_rows(len(values) - destination.row_count)
+        destination.update(range_name="A1", values=values, value_input_option="RAW")
+        # A generated player report must not retain stale trailing rows.
+        old_rows = destination.get_all_values()
+        if len(old_rows) > len(values):
+            destination.batch_clear([f"A{len(values)+1}:Z{len(old_rows)}"])
+    player_names = set(PLAYERS) | {ws.title for ws in players_book.worksheets()
+                                   if ws.title.startswith("J_")}
+    style(players_book,player_names)
     # Keep internal identifiers unchanged for data ingestion and rebuilding.
     # Expose complete, readable copies of the major analytics tables.
     friendly = {
@@ -132,7 +153,7 @@ def present(book, players_book):
             "fields": "index"
         }} for index, name in enumerate(ordered)
     ]})
-    hide_legacy(players_book,set(PLAYERS))
+    hide_legacy(players_book,player_names)
 
 def records(book, tab):
     return book.worksheet(tab).get_all_records()
