@@ -11,7 +11,7 @@ import requests
 from dotenv import load_dotenv
 from .core import TABS, HEADERS_MATCH, HEADERS_PLAYER, parse_match, upsert, summary
 from .analytics import EXTRA_TABS, archive, detailed_rows, timeline_rows, associate_builds, replace_by_match
-from .presentation import GENERAL, PLAYERS, ensure_tab, write_view, style, hide_legacy, build_general, build_players
+from .presentation import GENERAL, PLAYERS, ensure_tab, write_view, style, hide_legacy, build_general, build_players, display_bans
 
 ROUTES = {"LAS":"americas","LAN":"americas","NA":"americas","BR":"americas",
           "EUW":"europe","EUNE":"europe","TR":"europe","RU":"europe",
@@ -98,7 +98,7 @@ def present(book, players_book):
     participants=records(book,"RAW_JUGADORES")
     details=records(book,"RAW_DETALLE")
     write_view(book,"RESUMEN",GENERAL["RESUMEN"],build_general(matches))
-    write_view(book,"PARTIDAS",GENERAL["PARTIDAS"],[[m.get(k,"") for k in GENERAL["PARTIDAS"]] for m in matches])
+    write_view(book,"PARTIDAS",GENERAL["PARTIDAS"],[[display_bans(m.get(k,""),m.get("VERSION","")) if k in ("BANS_ACCA","BANS_RIVAL") else m.get(k,"") for k in GENERAL["PARTIDAS"]] for m in matches])
     # REGISTRO is the user-facing submission queue; do not overwrite it from a legacy tab.
     # Existing entries and statuses must survive every presentation refresh.
     ranking,history=build_players(matches,participants,details)
@@ -110,7 +110,17 @@ def present(book, players_book):
         if str(p.get("MATCH_ID")) == str(m.get("MATCH_ID"))
         and p.get("ES_ACCA") == "SI" and p.get("EQUIPO_ACCA") == "SI"
         and p.get("ALIAS") and p.get("CAMPEON")],lambda r:r["KEY"])
+    if not any(w.title == "CAMPEONES_LEGACY" for w in book.worksheets()):
+        original = book.worksheet("CAMPEONES")
+        if original.get_all_values():
+            book.duplicate_sheet(original.id, new_sheet_name="CAMPEONES_LEGACY")
     write_view(book,"CAMPEONES",TABS["CAMPEONES"],champion_rows)
+    champion_ws = book.worksheet("CAMPEONES")
+    from gspread.utils import rowcol_to_a1
+    if champion_ws.col_count > len(TABS["CAMPEONES"]):
+        first_extra = rowcol_to_a1(1,len(TABS["CAMPEONES"])+1).replace("1","")
+        last_extra = rowcol_to_a1(champion_ws.row_count,champion_ws.col_count)
+        champion_ws.batch_clear([f"{first_extra}1:{last_extra}"])
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
     # Preserve the original, extensive per-player reports in the player workbook.
