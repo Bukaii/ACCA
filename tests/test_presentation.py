@@ -13,4 +13,4 @@ def test_separate_general_and_player_views():
     assert any(r[0]=="JUGADORES" for r in ranking)
     assert sum(r[0]=="OBJETOS" for r in ranking)==1
     assert set(GENERAL)=={"RESUMEN","PARTIDAS","REGISTRO"}
-    assert set(PLAYERS)=={"JUGADORES","IDENTIDADES","RENDIMIENTO","PARTICIPACIONES"}
+    assert set(PLAYERS)=={"JUGADORES","RENDIMIENTO","PARTICIPACIONES"}
