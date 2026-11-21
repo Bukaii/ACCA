@@ -270,14 +270,57 @@ def rebuild(book):
     write_rows(book,"STATS_OBJETOS",EXTRA_TABS["STATS_OBJETOS"],summary(item_entries,lambda r:r["KEY"]))
     write_rows(book,"STATS_COMPOSICIONES",EXTRA_TABS["STATS_COMPOSICIONES"],summary(comp_entries,lambda r:r["KEY"]))
 
+def normalize_match_id(value):
+    """Accept the numeric match ID copied from the LAS client."""
+    mid = str(value).strip().upper()
+    if mid.isdigit():
+        return "LA2_" + mid
+    return mid
+
+
+def merge_submission_rows(*sources):
+    """Merge submissions without dropping newly entered rows or prior statuses."""
+    merged = {}
+    order = []
+    for source in sources:
+        for raw in source:
+            row = dict(raw)
+            mid = normalize_match_id(row.get("MATCH_ID", ""))
+            if not mid:
+                continue
+            row["MATCH_ID"] = mid
+            if mid not in merged:
+                merged[mid] = row
+                order.append(mid)
+            else:
+                prior = merged[mid]
+                for key, value in row.items():
+                    if value not in ("", None) and (not prior.get(key) or
+                            (key in ("ESTADO", "MENSAJE", "PROCESADA_UTC") and
+                             str(value).upper() not in ("PENDIENTE",))):
+                        prior[key] = value
+    return [merged[mid] for mid in order]
+
+
+def save_submission_queue(book, queue):
+    """Re-read both sheets immediately before saving to preserve manual additions."""
+    current = merge_submission_rows(records(book, "PARTIDAS_PENDIENTES"),
+                                    records(book, "REGISTRO"))
+    merged = merge_submission_rows(current, queue)
+    for tab, header in (("PARTIDAS_PENDIENTES", TABS["PARTIDAS_PENDIENTES"]),
+                        ("REGISTRO", GENERAL["REGISTRO"])):
+        write_rows(book, tab, header,
+                   [[row.get(key, "") for key in header] for row in merged])
+
+
 def sync(book, players_book, ids=(), force=False, refresh_ids=False):
     ensure(book)
     setup_players(book,players_book)
     members = resolve_players(players_book)
-    queue = records(book,"REGISTRO") if "REGISTRO" in [w.title for w in book.worksheets()] else records(book,"PARTIDAS_PENDIENTES")
+    queue = merge_submission_rows(records(book,"PARTIDAS_PENDIENTES"), records(book,"REGISTRO"))
     existing = {str(r.get("MATCH_ID","")).upper() for r in queue}
     for mid in ids:
-        mid = mid.strip().upper()
+        mid = normalize_match_id(mid)
         if mid and mid not in existing:
             queue.append({"MATCH_ID":mid,"ESTADO":"PENDIENTE","MENSAJE":"","LADO_ACCA":"","PROCESADA_UTC":""})
             existing.add(mid)
@@ -338,9 +381,7 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
             write_rows(book,tab,header,existing)
         write_rows(book,"RAW_PARTIDAS",HEADERS_MATCH,upsert(old_matches,incoming_matches))
         write_rows(book,"RAW_JUGADORES",HEADERS_PLAYER,upsert_participants(old_players,incoming_players))
-    write_rows(book,"PARTIDAS_PENDIENTES",TABS["PARTIDAS_PENDIENTES"],
-               [[r.get(k,"") for k in TABS["PARTIDAS_PENDIENTES"]] for r in queue])
-    write_view(book,"REGISTRO",GENERAL["REGISTRO"],[[r.get(k,"") for k in GENERAL["REGISTRO"]] for r in queue])
+    save_submission_queue(book, queue)
     if changed or force:
         rebuild(book)
     write_rows(book,"SISTEMA",TABS["SISTEMA"],[["ULTIMA_EJECUCION_UTC",datetime.now(timezone.utc).isoformat()],
