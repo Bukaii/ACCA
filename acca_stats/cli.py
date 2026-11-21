@@ -104,16 +104,11 @@ def present(book, players_book):
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
     style(players_book,PLAYERS)
-    # Preserve the complete historical general analytics, with a unified theme.
-    # Keep the full general analytics visible; hide only individual player tabs.
-    general_detail = {
-        "DASHBOARD_STATS", "STATS_CAMPEONES", "STATS_EQUIPOS",
-        "STATS_OBJETOS", "STATS_COMPOSICIONES", "RAW_PARTIDAS",
-        "RAW_EQUIPOS", "RAW_EVENTOS", "RAW_RIOT_ARCHIVO",
-        "PARTIDAS_MANUALES", "CANDIDATAS", "SISTEMA",
-    }
-    style(book,set(GENERAL) | general_detail)
-    hide_legacy(book,set(GENERAL) | general_detail)
+    # Four clear, user-facing tabs. All technical/raw and other large tables
+    # remain stored intact and accessible by unhiding, never deleted.
+    visible = set(GENERAL) | {"CAMPEONES"}
+    style(book, visible)
+    hide_legacy(book, visible)
     hide_legacy(players_book,set(PLAYERS))
 
 def records(book, tab):
@@ -184,7 +179,7 @@ def rebuild(book):
         m = by_id.get(str(p["MATCH_ID"]))
         if m:
             entries.append({"RESULTADO":m["RESULTADO"],"KEY":str(p.get("ALIAS",""))+" | "+str(p.get("CAMPEON",""))})
-    write_rows(book,"STATS_CAMPEONES",TABS["STATS_CAMPEONES"],summary(entries,lambda r:r["KEY"]))
+    write_rows(book,"CAMPEONES",TABS["CAMPEONES"],summary(entries,lambda r:r["KEY"]))
     player_entries,role_entries=[],[]
     for p in participants:
         if p.get("ES_ACCA") != "SI" or p.get("EQUIPO_ACCA") != "SI":
