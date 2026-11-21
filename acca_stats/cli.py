@@ -59,7 +59,7 @@ def connect(key="GOOGLE_SHEET_ID"):
 
 def ensure(book, players_book=None):
     """Add missing columns without moving or deleting existing user data."""
-    for name, header in {**TABS, **EXTRA_TABS}.items():
+    for name, header in {**{k:v for k,v in TABS.items() if not k.startswith("RAW_")}, **{k:v for k,v in EXTRA_TABS.items() if not k.startswith("RAW_")}}.items():
         try:
             ws = book.worksheet(name)
         except gspread.WorksheetNotFound:
@@ -93,10 +93,10 @@ def setup_players(book, players_book):
         write_rows(players_book,"JUGADORES",TABS["JUGADORES"],
                    [[r.get(k,"") for k in TABS["JUGADORES"]] for r in source])
 
-def present(book, players_book):
-    matches=records(book,"RAW_PARTIDAS")
-    participants=records(book,"RAW_JUGADORES")
-    details=records(book,"RAW_DETALLE")
+def present(book, players_book, matches=None, participants=None, details=None):
+    matches = matches if matches is not None else []
+    participants = participants if participants is not None else []
+    details = details if details is not None else []
     write_view(book,"RESUMEN",GENERAL["RESUMEN"],build_general(matches))
     write_view(book,"PARTIDAS",GENERAL["PARTIDAS"],[[display_bans(m.get(k,""),m.get("VERSION","")) if k in ("BANS_ACCA","BANS_RIVAL") else m.get(k,"") for k in GENERAL["PARTIDAS"]] for m in matches])
     # REGISTRO is the user-facing submission queue; do not overwrite it from a legacy tab.
@@ -314,7 +314,7 @@ def present(book, players_book):
         ["WR_MIN_95_%","Límite inferior estadístico de Wilson al 95%; ranking conservador, no otro porcentaje de victorias"],
         ["CONFIANZA BAJA","Pocas partidas observadas: el resultado todavía no es fiable"],
         ["CONFIANZA MEDIA / ALTA","Más partidas observadas; los umbrales dependen de la configuración del análisis"],
-        ["RAW_*","Tablas originales para exportación futura; no modificar manualmente"],
+        ["SUPABASE","Los JSON completos de Riot se guardan exclusivamente en Supabase"],
         ["JUGADORES","Una fila por Riot ID, repetí ALIAS para agregar cuentas adicionales del mismo jugador"],
     ]
     for destination in (book, players_book):
@@ -328,9 +328,6 @@ def present(book, players_book):
         "STATS_EQUIPOS": "EQUIPOS",
         "STATS_OBJETOS": "OBJETOS",
         "STATS_COMPOSICIONES": "COMPOSICIONES",
-        "RAW_PARTIDAS": "DETALLE DE PARTIDAS",
-        "RAW_EQUIPOS": "OBJETIVOS",
-        "RAW_EVENTOS": "EVENTOS",
     }
     for source, destination in friendly.items():
         source_ws = book.worksheet(source)
@@ -425,9 +422,9 @@ def resolve_players(book):
     return mapping
 
 
-def rebuild(book):
-    matches = records(book,"RAW_PARTIDAS")
-    participants = records(book,"RAW_JUGADORES")
+def rebuild(book, matches=None, participants=None):
+    matches = matches if matches is not None else []
+    participants = participants if participants is not None else []
     write_rows(book,"DASHBOARD_STATS",TABS["DASHBOARD_STATS"],summary(matches,lambda r:"ACCA"))
     write_rows(book,"STATS_EQUIPOS",TABS["STATS_EQUIPOS"],summary([m for m in matches if m.get("EQUIPO_ACCA") or m.get("INTEGRANTES")],lambda r:str(r.get("EQUIPO_ACCA") or r.get("INTEGRANTES"))))
     by_id = {str(r["MATCH_ID"]):r for r in matches}
@@ -650,116 +647,67 @@ def repair_from_archive(book, members):
 
 
 def sync(book, players_book, ids=(), force=False, refresh_ids=False):
+    """Google Sheets is an input and reporting UI; Supabase stores Riot data."""
+    if not supabase_archive.configured():
+        raise RuntimeError("Faltan credenciales de Supabase")
     ensure(book)
     setup_players(book,players_book)
     members = resolve_players(players_book)
-    queue = merge_submission_rows(records(book,"PARTIDAS_PENDIENTES"), records(book,"REGISTRO"))
-    # A pending retry in either sheet takes precedence over a stale error.
-    pending = {normalize_match_id(r.get("MATCH_ID", "")) for tab in ("PARTIDAS_PENDIENTES", "REGISTRO")
-               for r in records(book, tab) if str(r.get("ESTADO", "")).upper() == "PENDIENTE"}
-    for row in queue:
-        if row["MATCH_ID"] in pending:
-            row["ESTADO"], row["MENSAJE"] = "PENDIENTE", ""
-    existing = {str(r.get("MATCH_ID","")).upper() for r in queue}
-    for mid in ids:
-        mid = normalize_match_id(mid)
+    queue = merge_submission_rows(records(book,"REGISTRO"))
+    existing = {r["MATCH_ID"] for r in queue}
+    for supplied in ids:
+        mid = normalize_match_id(supplied)
         if mid and mid not in existing:
-            queue.append({"MATCH_ID":mid,"ESTADO":"PENDIENTE","MENSAJE":"","LADO_ACCA":"","PROCESADA_UTC":""})
+            queue.append({"MATCH_ID":mid,"ESTADO":"PENDIENTE","MENSAJE":"",
+                          "LADO_ACCA":"","PROCESADA_UTC":""})
             existing.add(mid)
         elif mid and refresh_ids:
             for row in queue:
-                if str(row.get("MATCH_ID","")).upper() == mid:
-                    row["ESTADO"]="PENDIENTE"
-                    row["MENSAJE"]=""
-    match_columns = book.worksheet("RAW_PARTIDAS").row_values(1)
-    player_columns = book.worksheet("RAW_JUGADORES").row_values(1)
-    old_matches = [[r.get(k,"") for k in match_columns] for r in records(book,"RAW_PARTIDAS")]
-    old_players = [[r.get(k,"") for k in player_columns] for r in records(book,"RAW_JUGADORES")]
-    incoming_matches, incoming_players = [],[]
-    advanced = {name: [] for name in ("RAW_EVENTOS","RAW_EQUIPOS","RAW_DETALLE","RAW_BUILDS")}
-    changed = False
+                if row["MATCH_ID"] == mid:
+                    row["ESTADO"] = "PENDIENTE"
     for row in queue:
-        if str(row.get("ESTADO","")).upper() not in ("","PENDIENTE"):
-            continue
-        mid = normalize_match_id(row.get("MATCH_ID", ""))
-        row["MATCH_ID"] = mid
-        if not mid:
+        mid = row["MATCH_ID"]
+        if row.get("ESTADO") == "PROCESADA" and not refresh_ids:
             continue
         route = PLATFORMS.get(mid.split("_",1)[0])
         if not route:
-            row["ESTADO"],row["MENSAJE"]="ERROR","Plataforma de partida no reconocida"
+            row["ESTADO"],row["MENSAJE"]="ERROR","Plataforma desconocida"
             continue
         try:
-            data = supabase_archive.load(mid,"match") if supabase_archive.configured() else None
-            if data is None:
-                data = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}")
-            timeline = supabase_archive.load(mid,"timeline") if supabase_archive.configured() else None
-            if timeline is None:
-                timeline = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}/timeline")
-            if not supabase_archive.configured():
-                raise RuntimeError("Supabase es obligatorio para procesar partidas")
-            supabase_archive.store_pair(mid,data,timeline)
             data = supabase_archive.load(mid,"match")
             timeline = supabase_archive.load(mid,"timeline")
-            if data is None or timeline is None:
-                raise RuntimeError("No se pudo recuperar el JSON archivado en Supabase")
-            match,players = parse_match(data,members,str(row.get("LADO_ACCA","")).strip() or None)
-            side = 100 if match[4] == "AZUL" else 200
-            detail, teams = detailed_rows(data,members,side)
-            events, builds = timeline_rows(mid,timeline)
-            advanced["RAW_EVENTOS"].extend(events)
-            advanced["RAW_EQUIPOS"].extend(teams)
-            advanced["RAW_DETALLE"].extend(detail)
-            advanced["RAW_BUILDS"].extend(associate_builds(builds,data))
-            match_values = expanded_match(data, match, members)
-            incoming_matches.append([match_values.get(k, "") for k in match_columns])
-            incoming_players.extend([[p.get(k, "") for k in player_columns]
-                                     for p in expanded_players(data, members, match)])
+            if data is None:
+                data = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}")
+            if timeline is None:
+                timeline = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}/timeline")
+            supabase_archive.store_pair(mid,data,timeline)
             row["ESTADO"],row["MENSAJE"]="PROCESADA",""
             row["PROCESADA_UTC"]=datetime.now(timezone.utc).isoformat()
-            changed=True
         except requests.HTTPError as exc:
             if exc.response is not None and exc.response.status_code == 404:
-                row["ESTADO"],row["MENSAJE"]="ERROR","Partida inexistente o fuera de retención de Riot"
+                row["ESTADO"],row["MENSAJE"]="ERROR","Partida no encontrada en Riot"
             else:
-                row["MENSAJE"]=str(exc)[:150]
+                raise
         except ValueError as exc:
             row["ESTADO"],row["MENSAJE"]="ERROR",str(exc)[:150]
-        except (RuntimeError,requests.RequestException) as exc:
-            raise RuntimeError(f"Sincronización detenida en {mid}: {exc}") from exc
-    if changed:
-        ids_processed = [m[0] for m in incoming_matches]
-        for tab, rows in advanced.items():
-            header = EXTRA_TABS[tab]
-            existing = [[r.get(k,"") for k in header] for r in records(book,tab)]
-            for processed_id in ids_processed:
-                existing = replace_by_match(existing,[r for r in rows if r[0]==processed_id],processed_id)
-            write_rows(book,tab,header,existing)
-        write_rows(book,"RAW_PARTIDAS",match_columns,upsert(old_matches,incoming_matches))
-        write_rows(book,"RAW_JUGADORES",player_columns,upsert_participants(old_players,incoming_players))
-    save_submission_queue(book, queue)
-    # Supabase is mandatory for synchronization; never silently skip archival.
-    if not supabase_archive.configured():
-        raise RuntimeError("Falta SUPABASE_SECRET_KEY o SUPABASE_URL: no se archivaron partidas en Supabase")
-    from collections import defaultdict
-    archived = defaultdict(lambda: defaultdict(list))
-    for old in records(book,"RAW_RIOT_ARCHIVO"):
-        if old.get("TIPO") in ("MATCH","TIMELINE") and old.get("GZIP_BASE64"):
-            archived[str(old["MATCH_ID"])][old["TIPO"]].append(
-                [old.get(k) for k in EXTRA_TABS["RAW_RIOT_ARCHIVO"]])
-    for mid, kinds in archived.items():
-        if "MATCH" not in kinds or "TIMELINE" not in kinds:
-            raise RuntimeError("Archivo Riot incompleto en Google Sheets: "+mid)
-        match = supabase_archive.load(mid,"match")
+    write_rows(book,"REGISTRO",GENERAL["REGISTRO"],
+               [[r.get(k,"") for k in GENERAL["REGISTRO"]] for r in queue])
+    matches,participants,details = [],[],[]
+    for mid in supabase_archive.list_match_ids():
+        data = supabase_archive.load(mid,"match")
         timeline = supabase_archive.load(mid,"timeline")
-        if match is None or timeline is None:
-            supabase_archive.store_pair(mid,unarchive(kinds["MATCH"]),unarchive(kinds["TIMELINE"]))
-    repaired = repair_from_archive(book, members)
-    if changed or repaired or force:
-        rebuild(book)
-    write_rows(book,"SISTEMA",TABS["SISTEMA"],[["ULTIMA_EJECUCION_UTC",datetime.now(timezone.utc).isoformat()],
-                                               ["RESULTADO","OK" if changed else "SIN_CAMBIOS"]])
-    present(book,players_book)
+        if data is None or timeline is None:
+            raise RuntimeError("Archivo incompleto en Supabase: "+mid)
+        source = next((r for r in queue if r["MATCH_ID"] == mid),{})
+        match,_ = parse_match(data,members,str(source.get("LADO_ACCA","")).strip() or None)
+        matches.append(expanded_match(data,match,members))
+        participants.extend(expanded_players(data,members,match))
+        side = 100 if match[4] == "AZUL" else 200
+        detail,_ = detailed_rows(data,members,side)
+        details.extend(dict(zip(EXTRA_TABS["RAW_DETALLE"],r)) for r in detail)
+    rebuild(book,matches,participants)
+    present(book,players_book,matches,participants,details)
+
 
 def upsert_participants(old, new):
     keyed = {(str(r[0]).upper(),str(r[1])):list(r) for r in old if len(r)>1}
@@ -794,19 +742,17 @@ def main():
         elif args.command == "init":
             ensure(book)
             setup_players(book,players_book)
-            present(book,players_book)
+            sync(book,players_book,force=True)
         elif args.command == "players":
             ensure(book)
             setup_players(book,players_book)
             resolve_players(players_book)
-            present(book,players_book)
+            sync(book,players_book,force=True)
         elif args.command == "rebuild":
             ensure(book)
             setup_players(book,players_book)
             members = resolve_players(players_book)
-            repair_from_archive(book, members)
-            rebuild(book)
-            present(book,players_book)
+            sync(book,players_book,force=True)
         else:
             sync(book,players_book,getattr(args,"ids",()),args.command in ("sync","refresh-match"),args.command=="refresh-match")
         print("Operación terminada")
