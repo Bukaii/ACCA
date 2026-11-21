@@ -52,6 +52,7 @@ def connect():
     return gc.open_by_key(sheet_id)
 
 def ensure(book):
+    """Add missing columns without moving or deleting existing user data."""
     for name, header in TABS.items():
         try:
             ws = book.worksheet(name)
@@ -60,17 +61,40 @@ def ensure(book):
         existing = ws.row_values(1)
         if not existing:
             ws.update(range_name="A1", values=[header])
-        elif existing[:len(header)] != header:
-            raise ValueError(f"Encabezados incompatibles en {name}; no se sobrescribieron datos")
+            continue
+        missing = [col for col in header if col not in existing]
+        if missing:
+            needed = len(existing) + len(missing)
+            if ws.col_count < needed:
+                ws.add_cols(needed - ws.col_count)
+            from gspread.utils import rowcol_to_a1
+            ws.update(range_name=rowcol_to_a1(1,len(existing)+1),
+                      values=[missing])
+            print(f"{name}: agregadas columnas {', '.join(missing)}; datos preservados")
 
 def records(book, tab):
     return book.worksheet(tab).get_all_records()
 
 def write_rows(book, tab, header, rows):
     ws = book.worksheet(tab)
-    values = [header] + rows
-    ws.clear()
-    ws.update(range_name="A1", values=values, value_input_option="RAW")
+    existing = ws.row_values(1)
+    # Keep original column order and any user-defined extra columns.
+    columns = existing or header
+    indexed = {name:i for i,name in enumerate(header)}
+    old = ws.get_all_values()[1:]
+    output = []
+    for n,row in enumerate(rows):
+        values = list(old[n]) if n < len(old) else []
+        values += [""] * (len(columns)-len(values))
+        for j,name in enumerate(columns):
+            if name in indexed:
+                values[j] = row[indexed[name]] if indexed[name] < len(row) else ""
+        output.append(values)
+    # No clear(): avoid erasing existing input data before successful writes.
+    ws.update(range_name="A1", values=[columns]+output, value_input_option="RAW")
+    if len(old) > len(output):
+        from gspread.utils import rowcol_to_a1
+        ws.batch_clear([f"A{len(output)+2}:{rowcol_to_a1(len(old)+1,len(columns))}"])
 
 def resolve_players(book):
     rows = records(book, "JUGADORES")
