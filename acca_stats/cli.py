@@ -114,11 +114,13 @@ def present(book, players_book):
         original = book.worksheet("CAMPEONES")
         if original.get_all_values():
             book.duplicate_sheet(original.id, new_sheet_name="CAMPEONES_LEGACY")
-    write_view(book,"CAMPEONES",TABS["CAMPEONES"],champion_rows)
+    champion_header = ["ALIAS","CAMPEON","PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%","WR_MIN_95_%"]
+    champion_clean = [[r[0].split(" | ",1)[0],r[0].split(" | ",1)[-1]]+r[1:] for r in champion_rows]
+    write_view(book,"CAMPEONES",champion_header,champion_clean)
     champion_ws = book.worksheet("CAMPEONES")
     from gspread.utils import rowcol_to_a1
-    if champion_ws.col_count > len(TABS["CAMPEONES"]):
-        first_extra = rowcol_to_a1(1,len(TABS["CAMPEONES"])+1).replace("1","")
+    if champion_ws.col_count > len(champion_header):
+        first_extra = rowcol_to_a1(1,len(champion_header)+1).replace("1","")
         last_extra = rowcol_to_a1(champion_ws.row_count,champion_ws.col_count)
         champion_ws.batch_clear([f"{first_extra}1:{last_extra}"])
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
