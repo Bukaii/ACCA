@@ -10,7 +10,8 @@ import gspread
 import requests
 from dotenv import load_dotenv
 from .core import TABS, HEADERS_MATCH, HEADERS_PLAYER, parse_match, upsert, summary
-from .analytics import EXTRA_TABS, archive, detailed_rows, timeline_rows, associate_builds, replace_by_match
+from .analytics import EXTRA_TABS, archive, detailed_rows, timeline_rows, associate_builds, replace_by_match, unarchive
+from . import supabase_archive
 from .presentation import GENERAL, PLAYERS, ensure_tab, write_view, style, hide_legacy, build_general, build_players, display_bans
 
 ROUTES = {"LAS":"americas","LAN":"americas","NA":"americas","BR":"americas",
@@ -689,9 +690,15 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
             row["ESTADO"],row["MENSAJE"]="ERROR","Plataforma de partida no reconocida"
             continue
         try:
-            data = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}")
+            data = supabase_archive.load(mid,"match") if supabase_archive.configured() else None
+            if data is None:
+                data = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}")
             match,players = parse_match(data,members,str(row.get("LADO_ACCA","")).strip() or None)
-            timeline = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}/timeline")
+            timeline = supabase_archive.load(mid,"timeline") if supabase_archive.configured() else None
+            if timeline is None:
+                timeline = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}/timeline")
+            if supabase_archive.configured():
+                supabase_archive.store_pair(mid,data,timeline)
             side = 100 if match[4] == "AZUL" else 200
             detail, teams = detailed_rows(data,members,side)
             events, builds = timeline_rows(mid,timeline)
@@ -728,6 +735,18 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
         write_rows(book,"RAW_PARTIDAS",match_columns,upsert(old_matches,incoming_matches))
         write_rows(book,"RAW_JUGADORES",player_columns,upsert_participants(old_players,incoming_players))
     save_submission_queue(book, queue)
+    # Backfill historical complete JSON from Sheets without requesting Riot again.
+    if supabase_archive.configured():
+        from collections import defaultdict
+        archived = defaultdict(lambda: defaultdict(list))
+        for old in records(book,"RAW_RIOT_ARCHIVO"):
+            if old.get("TIPO") in ("MATCH","TIMELINE") and old.get("GZIP_BASE64"):
+                archived[str(old["MATCH_ID"])][old["TIPO"]].append(
+                    [old.get(k) for k in EXTRA_TABS["RAW_RIOT_ARCHIVO"]])
+        for mid, kinds in archived.items():
+            if "MATCH" in kinds and "TIMELINE" in kinds:
+                if supabase_archive.load(mid,"match") is None or supabase_archive.load(mid,"timeline") is None:
+                    supabase_archive.store_pair(mid,unarchive(kinds["MATCH"]),unarchive(kinds["TIMELINE"]))
     repaired = repair_from_archive(book, members)
     if changed or repaired or force:
         rebuild(book)
