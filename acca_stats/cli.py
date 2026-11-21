@@ -85,6 +85,7 @@ def ensure(book, players_book=None):
 
 def setup_players(book, players_book):
     """Copy player registry once; never discard a populated destination registry."""
+    ensure_tab(players_book,"IDENTIDADES",PLAYERS["IDENTIDADES"])
     dest = ensure_tab(players_book,"JUGADORES",TABS["JUGADORES"])
     source = records(book,"JUGADORES")
     existing = dest.get_all_records()
@@ -101,6 +102,15 @@ def present(book, players_book):
     # REGISTRO is the user-facing submission queue; do not overwrite it from a legacy tab.
     # Existing entries and statuses must survive every presentation refresh.
     ranking,history=build_players(matches,participants,details)
+    # CAMPEONES is a generated, normalized table: never mix legacy captions
+    # and secondary headers with the actual champion rows.
+    champion_rows = summary([
+        {"RESULTADO":m["RESULTADO"],"KEY":str(p.get("ALIAS",""))+" | "+str(p.get("CAMPEON",""))}
+        for p in participants for m in matches
+        if str(p.get("MATCH_ID")) == str(m.get("MATCH_ID"))
+        and p.get("ES_ACCA") == "SI" and p.get("EQUIPO_ACCA") == "SI"
+        and p.get("ALIAS") and p.get("CAMPEON")],lambda r:r["KEY"])
+    write_view(book,"CAMPEONES",TABS["CAMPEONES"],champion_rows)
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
     # Preserve the original, extensive per-player reports in the player workbook.
@@ -140,14 +150,14 @@ def present(book, players_book):
         values = source_ws.get_all_values()
         if values:
             write_view(book, destination, values[0], values[1:])
-    visible = set(GENERAL) | {"CAMPEONES", "PARTIDAS_PENDIENTES", "PARTIDAS_MANUALES"} | set(friendly.values())
+    visible = set(GENERAL) | {"CAMPEONES", "PARTIDAS_PENDIENTES"} | set(friendly.values())
     style(book, visible)
     hide_legacy(book, visible)
     for ws in book.worksheets():
         if ws.title in visible and ws._properties.get("hidden", False):
             book.batch_update({"requests": [{"updateSheetProperties": {"properties": {"sheetId": ws.id, "hidden": False}, "fields": "hidden"}}]})
     # Display the most useful views first, keeping all technical tables intact.
-    ordered = ["REGISTRO", "PARTIDAS_PENDIENTES", "PARTIDAS_MANUALES", "RESUMEN", "PARTIDAS", "DETALLE DE PARTIDAS",
+    ordered = ["REGISTRO", "PARTIDAS_PENDIENTES", "RESUMEN", "PARTIDAS", "DETALLE DE PARTIDAS",
                "CAMPEONES", "EQUIPOS", "COMPOSICIONES",
                "OBJETOS", "OBJETIVOS", "EVENTOS", "REGISTRO"]
     book.batch_update({"requests": [
@@ -186,35 +196,54 @@ def write_rows(book, tab, header, rows):
         ws.batch_clear([f"A{len(output)+2}:{rowcol_to_a1(len(old)+1,len(columns))}"])
 
 def resolve_players(book):
-    rows = records(book, "JUGADORES")
+    """Resolve primary and historical Riot IDs to stable PUUIDs and ACCA aliases."""
+    from urllib.parse import quote
+    primary = records(book, "JUGADORES")
+    secondary = records(book, "IDENTIDADES")
     seen = set()
-    for row in rows:
-        alias = str(row["ALIAS"]).strip()
+    mapping = {}
+    def resolve(row, is_primary):
+        alias = str(row.get("ALIAS", "")).strip()
+        riot_id = str(row.get("RIOT_ID", "")).strip()
+        region = str(row.get("REGION", "")).upper().strip()
+        if not alias and not riot_id:
+            return
         if not alias:
-            continue
-        if alias.casefold() in seen:
-            row["ESTADO"],row["MENSAJE"] = "ERROR","Alias duplicado"
-            continue
-        seen.add(alias.casefold())
-        if str(row.get("ACTIVO","SI")).upper() == "NO":
-            continue
-        riot_id = str(row["RIOT_ID"]).strip()
-        region = str(row["REGION"]).upper().strip()
+            row["ESTADO"], row["MENSAJE"] = "ERROR", "Ingresá el alias ACCA"
+            return
+        if is_primary and alias.casefold() in seen:
+            row["ESTADO"], row["MENSAJE"] = "ERROR", "Alias duplicado"
+            return
+        if is_primary:
+            seen.add(alias.casefold())
+            if str(row.get("ACTIVO", "SI")).upper() == "NO":
+                return
         if "#" not in riot_id or region not in ROUTES:
-            row["ESTADO"],row["MENSAJE"] = "ERROR","RIOT_ID o REGION inválidos"
-            continue
-        if row.get("PUUID") and row.get("ESTADO") == "OK":
-            continue
-        name, tag = riot_id.rsplit("#",1)
-        from urllib.parse import quote
-        try:
-            data = riot_get(f"https://{ROUTES[region]}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{quote(name,safe='')}/{quote(tag,safe='')}")
-            row["PUUID"],row["ESTADO"],row["MENSAJE"] = data["puuid"],"OK",""
-        except Exception as exc:
-            row["ESTADO"],row["MENSAJE"] = "ERROR",str(exc)[:150]
-    write_rows(book,"JUGADORES",TABS["JUGADORES"],
-               [[r.get(k,"") for k in TABS["JUGADORES"]] for r in rows])
-    return {str(r["PUUID"]):str(r["ALIAS"]) for r in rows if r.get("PUUID") and r.get("ALIAS")}
+            row["ESTADO"], row["MENSAJE"] = "ERROR", "RIOT_ID o REGION inválidos"
+            return
+        if not row.get("PUUID") or row.get("ESTADO") != "OK":
+            name, tag = riot_id.rsplit("#", 1)
+            try:
+                data = riot_get(f"https://{ROUTES[region]}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{quote(name,safe='')}/{quote(tag,safe='')}")
+                row["PUUID"], row["ESTADO"], row["MENSAJE"] = data["puuid"], "OK", ""
+            except Exception as exc:
+                row["ESTADO"], row["MENSAJE"] = "ERROR", str(exc)[:150]
+        puuid = str(row.get("PUUID", "")).strip()
+        if puuid and row.get("ESTADO") == "OK":
+            if puuid in mapping and mapping[puuid] != alias:
+                row["ESTADO"], row["MENSAJE"] = "ERROR", "PUUID asignado a otro alias ACCA"
+            else:
+                mapping[puuid] = alias
+    for row in primary:
+        resolve(row, True)
+    for row in secondary:
+        resolve(row, False)
+    write_rows(book, "JUGADORES", TABS["JUGADORES"],
+               [[r.get(k, "") for k in TABS["JUGADORES"]] for r in primary])
+    write_rows(book, "IDENTIDADES", PLAYERS["IDENTIDADES"],
+               [[r.get(k, "") for k in PLAYERS["IDENTIDADES"]] for r in secondary])
+    return mapping
+
 
 def rebuild(book):
     matches = records(book,"RAW_PARTIDAS")
