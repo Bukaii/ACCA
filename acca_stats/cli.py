@@ -170,27 +170,63 @@ def present(book, players_book):
         old_length = len(ws.get_all_values())
         if old_length > len(rows):
             ws.batch_clear([f"A{len(rows)+1}:{rowcol_to_a1(old_length,ws.col_count)}"])
-        # Highlight actual section labels and each table header, not empty bars.
-        section_rows = [i for i,row in enumerate(rows) if len(row)==1 and row[0] and i>2]
-        header_rows = [i for i,row in enumerate(rows) if len(row)>1 and
-                       (row[0] in ("PARTIDAS","CAMPEON","ROL","OBJETO","MATCH_ID"))]
-        formatting = []
+        # Style sectioned reports without changing any values or merging cells.
+        # Compact columns and readable long labels; each original metric remains.
+        section_rows = [i for i,row in enumerate(rows)
+                        if len(row)==1 and row[0] and i>2]
+        header_rows = [i for i,row in enumerate(rows)
+                       if len(row)>1 and row[0] in
+                       ("PARTIDAS","CAMPEON","ROL","OBJETO","MATCH_ID")]
+        formatting = [
+            {"updateSheetProperties":{"properties":{"sheetId":ws.id,
+                "gridProperties":{"frozenRowCount":0,"hideGridlines":True}},
+                "fields":"gridProperties.frozenRowCount,gridProperties.hideGridlines"}},
+            {"updateDimensionProperties":{"range":{"sheetId":ws.id,
+                "dimension":"COLUMNS","startIndex":0,"endIndex":1},
+                "properties":{"pixelSize":265},"fields":"pixelSize"}},
+            {"updateDimensionProperties":{"range":{"sheetId":ws.id,
+                "dimension":"COLUMNS","startIndex":1,"endIndex":min(2,width)},
+                "properties":{"pixelSize":235},"fields":"pixelSize"}},
+        ]
+        if width>2:
+            formatting.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
+                "dimension":"COLUMNS","startIndex":2,"endIndex":width},
+                "properties":{"pixelSize":125},"fields":"pixelSize"}})
+        formatting.append({"repeatCell":{"range":{"sheetId":ws.id},
+            "cell":{"userEnteredFormat":{"verticalAlignment":"MIDDLE",
+                "wrapStrategy":"WRAP","textFormat":{"fontSize":10}}},
+            "fields":"userEnteredFormat.verticalAlignment,userEnteredFormat.wrapStrategy,userEnteredFormat.textFormat.fontSize"}})
         for i in section_rows:
             formatting.append({"repeatCell":{"range":{"sheetId":ws.id,
                 "startRowIndex":i,"endRowIndex":i+1,"startColumnIndex":0,
                 "endColumnIndex":width},
-                "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.86,"green":0.91,"blue":0.97},
-                    "textFormat":{"bold":True,"foregroundColor":{"red":0.10,"green":0.17,"blue":0.27}}}},
-                "fields":"userEnteredFormat"}})
+                "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.87,"green":0.92,"blue":0.97},
+                    "textFormat":{"bold":True,"fontSize":11,"foregroundColor":{"red":0.10,"green":0.17,"blue":0.27}}}},
+                "fields":"userEnteredFormat.backgroundColor,userEnteredFormat.textFormat"}})
+            formatting.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
+                "dimension":"ROWS","startIndex":i,"endIndex":i+1},
+                "properties":{"pixelSize":32},"fields":"pixelSize"}})
         for i in header_rows:
             formatting.append({"repeatCell":{"range":{"sheetId":ws.id,
                 "startRowIndex":i,"endRowIndex":i+1,"startColumnIndex":0,
                 "endColumnIndex":width},
-                "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.91,"green":0.94,"blue":0.98},
-                    "textFormat":{"bold":True}}},
-                "fields":"userEnteredFormat"}})
-        if formatting:
-            players_book.batch_update({"requests":formatting})
+                "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.92,"green":0.95,"blue":0.98},
+                    "textFormat":{"bold":True,"fontSize":10}}},
+                "fields":"userEnteredFormat.backgroundColor,userEnteredFormat.textFormat"}})
+            formatting.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
+                "dimension":"ROWS","startIndex":i,"endIndex":i+1},
+                "properties":{"pixelSize":42},"fields":"pixelSize"}})
+        formatting.append({"repeatCell":{"range":{"sheetId":ws.id,
+            "startRowIndex":0,"endRowIndex":1,"startColumnIndex":0,
+            "endColumnIndex":width},
+            "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.13,"green":0.20,"blue":0.32},
+                "textFormat":{"bold":True,"fontSize":12,
+                    "foregroundColor":{"red":1,"green":1,"blue":1}}}},
+            "fields":"userEnteredFormat.backgroundColor,userEnteredFormat.textFormat"}})
+        formatting.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
+            "dimension":"ROWS","startIndex":0,"endIndex":1},
+            "properties":{"pixelSize":42},"fields":"pixelSize"}})
+        players_book.batch_update({"requests":formatting})
     guide = [
         ["CAMPO","SIGNIFICADO"],
         ["MATCH_ID","Identificador único de partida de Riot; LA2_ seguido del número"],
@@ -210,7 +246,7 @@ def present(book, players_book):
         write_view(destination,"GUIA",guide[0],guide[1:])
     player_names = set(PLAYERS) | {"GUIA"} | {ws.title for ws in players_book.worksheets()
                                    if ws.title.startswith("J_")}
-    style(players_book,player_names)
+    style(players_book,{name for name in player_names if not name.startswith("J_")})
     # Keep internal identifiers unchanged for data ingestion and rebuilding.
     # Expose complete, readable copies of the major analytics tables.
     friendly = {
