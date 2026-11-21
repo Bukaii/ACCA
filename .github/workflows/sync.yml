@@ -1,5 +1,10 @@
 name: Sincronizar ACCA
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'acca_stats/**'
+      - '.github/workflows/sync.yml'
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
