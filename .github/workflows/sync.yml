@@ -9,8 +9,21 @@ on:
     - cron: '7 * * * *'
   workflow_dispatch:
     inputs:
+      operation:
+        description: 'Operación manual'
+        required: true
+        default: 'sync'
+        type: choice
+        options:
+          - sync
+          - add-match
+          - refresh-match
+          - rebuild
+          - players
+          - init
+          - check
       match_ids:
-        description: 'IDs separados por espacios (opcional)'
+        description: 'IDs de partidas separados por espacios (para add-match o refresh-match)'
         required: false
         type: string
 permissions:
@@ -28,17 +41,35 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
-      - name: Sync
+      - name: Ejecutar operación solicitada
         env:
           RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_ID_PLAYERS: ${{ secrets.GOOGLE_SHEET_ID_PLAYERS }}
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          OPERATION: ${{ inputs.operation }}
           MATCH_IDS: ${{ inputs.match_ids }}
         run: |
-          if [ -n "$MATCH_IDS" ]; then
-            read -ra IDS <<< "$MATCH_IDS"
-            python -m acca_stats add-match "${IDS[@]}"
-          else
-            python -m acca_stats sync
-          fi
+          set -euo pipefail
+          OPERATION="${OPERATION:-sync}"
+          case "$OPERATION" in
+            sync|rebuild|players|init|check)
+              if [ -n "$MATCH_IDS" ]; then
+                echo "::error::La operación $OPERATION no admite IDs. Usá add-match o refresh-match."
+                exit 1
+              fi
+              python -m acca_stats "$OPERATION"
+              ;;
+            add-match|refresh-match)
+              if [ -z "${MATCH_IDS//[[:space:]]/}" ]; then
+                echo "::error::Ingresá al menos un MATCH_ID."
+                exit 1
+              fi
+              read -ra IDS <<< "$MATCH_IDS"
+              python -m acca_stats "$OPERATION" "${IDS[@]}"
+              ;;
+            *)
+              echo "::error::Operación no válida: $OPERATION"
+              exit 1
+              ;;
+          esac
