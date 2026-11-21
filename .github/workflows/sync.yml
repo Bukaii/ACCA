@@ -1,5 +1,7 @@
 name: Sincronizar ACCA
 on:
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       operation:
@@ -36,7 +38,6 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - name: Ejecutar operación solicitada
         env:
-          RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
           SUPABASE_URL: https://nbariaodntfhgnldusmq.supabase.co
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
@@ -46,7 +47,7 @@ jobs:
           MATCH_IDS: ${{ inputs.match_ids }}
         run: |
           set -euo pipefail
-          # Legacy manual reporting only. Cloudflare processes new Discord matches.
+          # Reporting reads only archived Supabase data; Cloudflare ingests Discord matches.
           OPERATION="${OPERATION:-sync}"
           case "$OPERATION" in
             sync|rebuild|players|init|check)
@@ -57,12 +58,8 @@ jobs:
               python -m acca_stats "$OPERATION"
               ;;
             add-match|refresh-match)
-              if [ -z "${MATCH_IDS//[[:space:]]/}" ]; then
-                echo "::error::Ingresá al menos un MATCH_ID."
-                exit 1
-              fi
-              read -ra IDS <<< "$MATCH_IDS"
-              python -m acca_stats "$OPERATION" "${IDS[@]}"
+              echo "::error::Las partidas se agregan con /partida en Discord. Esta tarea solo publica desde Supabase."
+              exit 1
               ;;
             *)
               echo "::error::Operación no válida: $OPERATION"
