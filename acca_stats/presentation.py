@@ -86,10 +86,11 @@ def hide_legacy(book,keep):
 def build_general(matches):
     result=[]
     for label,key in (("GENERAL",lambda r:"ACCA"),
-                      ("EQUIPOS",lambda r:str(r.get("EQUIPO_ACCA","")))):
+                      ("EQUIPOS",lambda r:str(r.get("EQUIPO_ACCA") or r.get("INTEGRANTES","")))):
         result += [[label]+r for r in summary(matches,key)]
     for label,field in (("COMPOSICIONES","COMPOSICION_ACCA"),("RIVALES","COMPOSICION_RIVAL")):
-        result += [[label]+r for r in summary(matches,lambda m:str(m.get(field,"")))]
+        populated=[m for m in matches if m.get(field)]
+        result += [[label]+r for r in summary(populated,lambda m:str(m.get(field,"")))]
     return result
 
 def build_players(matches,players,details):
