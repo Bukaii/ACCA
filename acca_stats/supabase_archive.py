@@ -48,7 +48,8 @@ def store(match_id, kind, data):
     digest = hashlib.sha256(raw).hexdigest()
     headers = {**_headers(),"Content-Type":"application/gzip","x-upsert":"true"}
     response = requests.post(_url(path),headers=headers,data=payload,timeout=60)
-    response.raise_for_status()
+    if not response.ok:
+        raise RuntimeError(f"Supabase Storage upload {response.status_code}: {response.text[:1200]}")
     # Read back and verify before treating the archive as durable.
     check = load(match_id,kind)
     if check != data:
