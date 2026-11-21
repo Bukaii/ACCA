@@ -109,10 +109,10 @@ def present(book, players_book):
     for source in book.worksheets():
         if not source.title.startswith("J_"):
             continue
-        destination = ensure_tab(players_book, source.title, [])
         values = source.get_all_values()
         if not values:
             continue
+        destination = ensure_tab(players_book, source.title, values[0])
         if destination.col_count < max(map(len, values)):
             destination.add_cols(max(map(len, values)) - destination.col_count)
         if destination.row_count < len(values):
