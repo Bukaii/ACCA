@@ -92,6 +92,44 @@ def present(book, players_book, matches=None, participants=None, details=None):
         champion_ws.batch_clear([f"{first_extra}1:{last_extra}"])
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
+    # A dedicated worksheet per alias; links always point to the actual sheet gid.
+    from collections import defaultdict
+    from urllib.parse import quote
+    by_alias=defaultdict(list)
+    for row in history:
+        if len(row)>1 and row[1]:
+            by_alias[str(row[1])].append(row)
+    used_names=set()
+    alias_tabs={}
+    for alias in sorted(by_alias):
+        base="J_"+alias[:85].replace("/", "_").replace("[", "(").replace("]", ")").replace(":", "-").replace("?", "")
+        name=base
+        n=2
+        while name in used_names:
+            name=base[:90-len(str(n))]+"_"+str(n)
+            n+=1
+        used_names.add(name)
+        ws=write_view(players_book,name,PLAYERS["PARTICIPACIONES"],by_alias[alias])
+        alias_tabs[alias]=ws.id
+    base_url="https://docs.google.com/spreadsheets/d/"+players_book.id+"/edit#gid="
+    def linked_alias(alias):
+        alias=str(alias)
+        gid=alias_tabs.get(alias)
+        if gid is None:
+            return alias
+        return '=HYPERLINK("'+base_url+str(gid)+'","'+alias.replace('"','""')+'")'
+    ranking=[[r[0],linked_alias(r[1]) if r[0]=="JUGADORES" else r[1],*r[2:]] for r in ranking]
+    history=[[r[0],linked_alias(r[1]),*r[2:]] for r in history]
+    write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
+    write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
+    # gspread RAW writes formulas as text; enable formula evaluation only for alias cells.
+    for tab, col in (("RENDIMIENTO",2),("PARTICIPACIONES",2)):
+        ws=players_book.worksheet(tab)
+        values=[r[col-1] for r in (ranking if tab=="RENDIMIENTO" else history)]
+        from gspread.utils import rowcol_to_a1
+        if values:
+            ws.update(range_name="B2:B"+str(len(values)+1),values=[[v] for v in values],value_input_option="USER_ENTERED")
+
     # Render player analytics from Supabase-derived records; no historical RAW source.
     # J_* reports in the general workbook. Append current match history below.
     # Never replace the multi-section source with a reduced match-only table.
@@ -184,33 +222,34 @@ def write_rows(book, tab, header, rows):
         ws.batch_clear([f"A{len(output)+2}:{rowcol_to_a1(len(old)+1,len(columns))}"])
 
 def resolve_players(book):
-    """Each row in JUGADORES is a Riot account; repeated aliases are supported."""
-    from urllib.parse import quote
+    """Supabase owns the alias/PUUID mapping; preserve legacy Sheet accounts."""
+    import requests
     rows = records(book, "JUGADORES")
+    url = os.environ["SUPABASE_URL"].rstrip("/") + "/rest/v1/"
+    headers = {"apikey": os.environ["SUPABASE_SECRET_KEY"],
+               "Authorization": "Bearer " + os.environ["SUPABASE_SECRET_KEY"]}
+    players_response = requests.get(url + "acca_players", params={"select": "alias_key,alias"},
+                                    headers=headers, timeout=30)
+    players_response.raise_for_status()
+    aliases = {p["alias_key"]: p["alias"] for p in players_response.json()}
+    accounts_response = requests.get(url + "acca_player_accounts",
+                                     params={"select": "puuid,alias_key,riot_id"},
+                                     headers=headers, timeout=30)
+    accounts_response.raise_for_status()
     mapping = {}
     for row in rows:
-        alias = str(row.get("ALIAS", "")).strip()
-        riot_id = str(row.get("RIOT_ID", "")).strip()
-        region = str(row.get("REGION", "")).upper().strip()
-        if not alias and not riot_id:
-            continue
-        if not alias or "#" not in riot_id or region not in ROUTES:
-            row["ESTADO"], row["MENSAJE"] = "ERROR", "Completá ALIAS, RIOT_ID y REGION"
-            continue
-        if str(row.get("ACTIVO", "SI")).upper() == "NO":
-            continue
-        # PUUID is a stable identifier already registered in the spreadsheet.
-        # Reporting never calls Riot; resolve missing PUUIDs outside this pipeline.
-        if not str(row.get("PUUID", "")).strip():
-            row["ESTADO"], row["MENSAJE"] = "ERROR", "Falta PUUID; completalo para asociar partidas"
-            continue
-        row["ESTADO"], row["MENSAJE"] = "OK", ""
         puuid = str(row.get("PUUID", "")).strip()
-        if puuid and row.get("ESTADO") == "OK":
-            if puuid in mapping and mapping[puuid] != alias:
-                row["ESTADO"], row["MENSAJE"] = "ERROR", "Cuenta vinculada a otro alias"
-            else:
-                mapping[puuid] = alias
+        alias = str(row.get("ALIAS", "")).strip()
+        if puuid and alias and str(row.get("ACTIVO", "SI")).upper() != "NO":
+            mapping[puuid] = alias
+    for account in accounts_response.json():
+        alias = aliases.get(account["alias_key"])
+        if alias:
+            mapping[account["puuid"]] = alias
+            if not any(str(r.get("PUUID", "")).strip() == account["puuid"] for r in rows):
+                rows.append({"ALIAS": alias, "RIOT_ID": account["riot_id"],
+                             "REGION": "", "ACTIVO": "SI", "PUUID": account["puuid"],
+                             "ESTADO": "OK", "MENSAJE": ""})
     write_rows(book, "JUGADORES", TABS["JUGADORES"],
                [[r.get(k, "") for k in TABS["JUGADORES"]] for r in rows])
     return mapping
