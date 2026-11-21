@@ -327,6 +327,12 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
     setup_players(book,players_book)
     members = resolve_players(players_book)
     queue = merge_submission_rows(records(book,"PARTIDAS_PENDIENTES"), records(book,"REGISTRO"))
+    # A pending retry in either sheet takes precedence over a stale error.
+    pending = {normalize_match_id(r.get("MATCH_ID", "")) for tab in ("PARTIDAS_PENDIENTES", "REGISTRO")
+               for r in records(book, tab) if str(r.get("ESTADO", "")).upper() == "PENDIENTE"}
+    for row in queue:
+        if row["MATCH_ID"] in pending:
+            row["ESTADO"], row["MENSAJE"] = "PENDIENTE", ""
     existing = {str(r.get("MATCH_ID","")).upper() for r in queue}
     for mid in ids:
         mid = normalize_match_id(mid)
