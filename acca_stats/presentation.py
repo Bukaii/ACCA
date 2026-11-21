@@ -9,6 +9,7 @@ GENERAL = {
 }
 PLAYERS = {
     "JUGADORES": ["ALIAS","RIOT_ID","REGION","ACTIVO","PUUID","ESTADO","MENSAJE"],
+    "IDENTIDADES": ["ALIAS","RIOT_ID","REGION","PUUID","ESTADO","MENSAJE"],
     "RENDIMIENTO": ["SECCION","CLAVE","PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%","WR_MIN_95_%"],
     "PARTICIPACIONES": ["MATCH_ID","ALIAS","CAMPEON","ROL","RESULTADO","KILLS","DEATHS","ASSISTS","KDA","KP_%","CS_MIN","ORO_MIN","DANO_MIN","VISION","ITEMS"],
 }
@@ -46,31 +47,32 @@ def write_view(book,name,header,rows):
     return ws
 
 def style(book,names):
-    """One consistent, light design, matching the original neutral table style."""
+    """Repeatable styling: banding and separators cover the entire growing table."""
     requests=[]
+    meta=book.fetch_sheet_metadata(params={"fields":"sheets(properties(sheetId),bandedRanges(bandedRangeId))"})
+    existing={sh["properties"]["sheetId"]:sh.get("bandedRanges",[]) for sh in meta.get("sheets",[])}
     for name in names:
         ws=book.worksheet(name)
         gid=ws.id
+        width=min(ws.col_count, max(7,len(ws.row_values(1))))
+        end=max(ws.row_count, len(ws.get_all_values())+10)
         requests.extend([
             {"updateSheetProperties":{"properties":{"sheetId":gid,"gridProperties":{"frozenRowCount":1,"hideGridlines":True}},"fields":"gridProperties.frozenRowCount,gridProperties.hideGridlines"}},
-            {"repeatCell":{"range":{"sheetId":gid,"startRowIndex":0,"endRowIndex":1},
-                           "cell":{"userEnteredFormat":{"backgroundColor":NAVY,
-                               "textFormat":{"foregroundColor":WHITE,"bold":True,"fontSize":10},
-                               "verticalAlignment":"MIDDLE","wrapStrategy":"CLIP"}},
-                           "fields":"userEnteredFormat"}},
-            {"updateDimensionProperties":{"range":{"sheetId":gid,"dimension":"ROWS","startIndex":0,"endIndex":1},
-                                         "properties":{"pixelSize":34},"fields":"pixelSize"}},
-            {"updateDimensionProperties":{"range":{"sheetId":gid,"dimension":"COLUMNS","startIndex":0,"endIndex":min(ws.col_count,20)},
-                                         "properties":{"pixelSize":130},"fields":"pixelSize"}},
-            {"addBanding":{"bandedRange":{"range":{"sheetId":gid,"startRowIndex":0,"endRowIndex":max(2,ws.row_count),"startColumnIndex":0,"endColumnIndex":min(ws.col_count,20)},
-                "rowProperties":{"headerColor":NAVY,"firstBandColor":WHITE,"secondBandColor":PALE}}}},
+            {"repeatCell":{"range":{"sheetId":gid,"startRowIndex":0,"endRowIndex":1,"startColumnIndex":0,"endColumnIndex":width},
+                "cell":{"userEnteredFormat":{"backgroundColor":NAVY,"textFormat":{"foregroundColor":WHITE,"bold":True,"fontSize":10},"verticalAlignment":"MIDDLE","wrapStrategy":"WRAP"}},
+                "fields":"userEnteredFormat"}},
+            {"updateDimensionProperties":{"range":{"sheetId":gid,"dimension":"ROWS","startIndex":0,"endIndex":1},"properties":{"pixelSize":38},"fields":"pixelSize"}},
+            {"updateDimensionProperties":{"range":{"sheetId":gid,"dimension":"COLUMNS","startIndex":0,"endIndex":width},"properties":{"pixelSize":155},"fields":"pixelSize"}},
         ])
-    # Banding may already exist; only add one when missing.
-    existing=book.fetch_sheet_metadata(params={"fields":"sheets(properties(sheetId),bandedRanges(bandedRangeId))"})
-    banded={s["properties"]["sheetId"] for s in existing.get("sheets",[]) if s.get("bandedRanges")}
-    requests=[r for r in requests if "addBanding" not in r or r["addBanding"]["bandedRange"]["range"]["sheetId"] not in banded]
+        band={"range":{"sheetId":gid,"startRowIndex":0,"endRowIndex":end,"startColumnIndex":0,"endColumnIndex":width},
+              "rowProperties":{"headerColor":NAVY,"firstBandColor":WHITE,"secondBandColor":PALE}}
+        if existing.get(gid):
+            requests.append({"updateBanding":{"bandedRange":{"bandedRangeId":existing[gid][0]["bandedRangeId"],**band},"fields":"range,rowProperties"}})
+        else:
+            requests.append({"addBanding":{"bandedRange":band}})
     if requests:
         book.batch_update({"requests":requests})
+
 
 def hide_legacy(book,keep):
     """Never delete history. Hide obsolete tabs only after both workbooks are written."""
