@@ -68,6 +68,13 @@ async function archive(env,id,match,timeline) {
   const mp=id+"/match.json.gz",tp=id+"/timeline.json.gz";
   await upload(env,mp,m.compressed);
   await upload(env,tp,t.compressed);
+  // Verify both objects before inserting the durable index.
+  for (const [path,expected] of [[mp,match],[tp,timeline]]) {
+    const res=await supa(env,"/storage/v1/object/"+BUCKET+"/"+path);
+    const stream=res.body.pipeThrough(new DecompressionStream("gzip"));
+    const actual=JSON.parse(await new Response(stream).text());
+    if (JSON.stringify(actual)!==JSON.stringify(expected)) throw new Error("Supabase readback mismatch: "+path);
+  }
   await supa(env,"/rest/v1/acca_match_archives?on_conflict=match_id",{
     method:"POST",headers:{"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
     body:JSON.stringify({match_id:id,match_path:mp,timeline_path:tp,match_sha256:await sha256(m.raw),timeline_sha256:await sha256(t.raw)})
