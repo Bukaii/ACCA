@@ -50,7 +50,7 @@ async function riot(env,route,id,kind) {
 async function gzip(value) {
   const bytes=new TextEncoder().encode(JSON.stringify(value));
   const stream=new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  return {compressed:new Uint8Array(await new Response(stream).arrayBuffer()),raw:bytes};
 }
 async function sha256(bytes) {
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256",bytes))]
@@ -66,11 +66,11 @@ async function upload(env,path,data) {
 async function archive(env,id,match,timeline) {
   const m=await gzip(match),t=await gzip(timeline);
   const mp=id+"/match.json.gz",tp=id+"/timeline.json.gz";
-  await upload(env,mp,m);
-  await upload(env,tp,t);
+  await upload(env,mp,m.compressed);
+  await upload(env,tp,t.compressed);
   await supa(env,"/rest/v1/acca_match_archives?on_conflict=match_id",{
     method:"POST",headers:{"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
-    body:JSON.stringify({match_id:id,match_path:mp,timeline_path:tp,match_sha256:await sha256(m),timeline_sha256:await sha256(t)})
+    body:JSON.stringify({match_id:id,match_path:mp,timeline_path:tp,match_sha256:await sha256(m.raw),timeline_sha256:await sha256(t.raw)})
   });
 }
 async function followup(env,appId,token,message) {
