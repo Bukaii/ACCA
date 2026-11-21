@@ -15,10 +15,13 @@ def fake_match(count=5):
         ps.append({"teamId":100 if i<5 else 200,"puuid":f"p{i}","win":i<5,"championName":"Ahri"})
     return {"metadata":{"matchId":"LA2_123"},"info":{"participants":ps}}, {f"p{i}":f"J{i}" for i in range(count)}
 
-def test_requires_five_members():
-    data,members = fake_match(4)
-    with pytest.raises(ValueError,match="cinco"):
-        parse_match(data,members)
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5])
+def test_accepts_partial_acca_teams(count):
+    data,members = fake_match(count)
+    match,players = parse_match(data,members)
+    assert match[7] == count
+    assert sum(p[4]=="SI" for p in players) == count
+    assert len(players) == 10
 
 def test_ten_participants_and_reprocessing():
     data,members = fake_match()
