@@ -101,7 +101,7 @@ def present(book, players_book, matches=None, participants=None, details=None):
             by_alias[str(row[1])].append(row)
     used_names=set()
     alias_tabs={}
-    for alias in sorted(by_alias):
+    for alias in sorted(set(by_alias) | {str(r.get("ALIAS","")).strip() for r in records(players_book,"JUGADORES") if str(r.get("ALIAS","")).strip()}):
         base="J_"+alias[:85].replace("/", "_").replace("[", "(").replace("]", ")").replace(":", "-").replace("?", "")
         name=base
         n=2
@@ -122,6 +122,12 @@ def present(book, players_book, matches=None, participants=None, details=None):
     history=[[r[0],linked_alias(r[1]),*r[2:]] for r in history]
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
+    registry_ws=players_book.worksheet("JUGADORES")
+    registry_rows=records(players_book,"JUGADORES")
+    if registry_rows:
+        registry_ws.update(range_name="A2:A"+str(len(registry_rows)+1),
+                           values=[[linked_alias(r.get("ALIAS",""))] for r in registry_rows],
+                           value_input_option="USER_ENTERED")
     # gspread RAW writes formulas as text; enable formula evaluation only for alias cells.
     for tab, col in (("RENDIMIENTO",2),("PARTICIPACIONES",2)):
         ws=players_book.worksheet(tab)
