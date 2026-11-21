@@ -1,83 +1,43 @@
-# ACCA — Estadísticas oficiales de League of Legends
+# ACCA — Guía de uso
 
-Este documento explica cómo usar la hoja de cálculo compartida de ACCA. **No es necesario instalar programas ni ejecutar comandos.** La sincronización se realiza desde GitHub.
+ACCA se actualiza automáticamente desde GitHub. No hace falta instalar nada.
 
-## 1. Jugadores — pestaña `JUGADORES`
+## Archivo general (`GOOGLE_SHEET_ID`)
 
-Cada integrante ocupa una fila. Completá únicamente:
-
-| Columna | Qué escribir | Ejemplo |
-|---|---|---|
-| ALIAS | Nombre identificable dentro de ACCA, único | Lyan |
-| RIOT_ID | Nombre y etiqueta de Riot, separados por # | Jugador#LAS |
-| REGION | Servidor del jugador | LAS |
-| ACTIVO | SI para incluirlo, NO para desactivarlo | SI |
-
-Las columnas `PUUID`, `ESTADO` y `MENSAJE` las completa el sistema. **No las edites.** Si un jugador aparece con `ERROR`, revisá el Riot ID y la región.
-
-El alias identifica al integrante en las estadísticas; evitá cambiarlo después de registrar partidas, porque los datos históricos pueden conservar el nombre anterior. Desactivar a alguien no borra sus registros históricos.
-
-## 2. Registrar una partida oficial — pestaña `PARTIDAS_PENDIENTES`
-
-1. Copiá el ID de partida de Riot, por ejemplo `LA2_1234567890`.
-2. Agregalo en una fila nueva de la columna `MATCH_ID`.
-3. Dejá `ESTADO` vacío o escribí `PENDIENTE`.
-4. Esperá la próxima sincronización de GitHub.
-
-**Solo se registran las partidas cargadas expresamente.** No se cuentan automáticamente todas las partidas de los miembros.
-
-El sistema requiere **cinco integrantes registrados en el mismo equipo**. Si no reconoce a los cinco, la partida queda en `ERROR`. Si ambos equipos están formados por miembros de ACCA, escribí `AZUL` o `ROJO` en `LADO_ACCA` para indicar cuál se contabiliza.
-
-### Estados
-
-| ESTADO | Significado | Qué hacer |
-|---|---|---|
-| Vacío / PENDIENTE | Esperando procesamiento | No hacer nada |
-| PROCESADA | Partida incorporada a las estadísticas | No hacer nada |
-| ERROR | No pudo registrarse | Leer MENSAJE, corregir el dato y cambiar ESTADO a PENDIENTE |
-
-No borres partidas procesadas de las hojas `RAW_*`. Para reprocesar una partida, volvé a poner su estado en `PENDIENTE`. El sistema intenta reemplazar el registro anterior en vez de duplicarlo.
-
-## 3. Consultar estadísticas
-
-| Pestaña | Qué muestra |
+| Pestaña visible | Uso |
 |---|---|
-| `DASHBOARD_STATS` | Partidas oficiales, victorias, derrotas y winrate general |
-| `STATS_EQUIPOS` | Resultados por combinación de cinco integrantes |
-| `STATS_CAMPEONES` | Rendimiento por jugador y campeón |
-| `RAW_PARTIDAS` | Registro original de las partidas oficiales |
-| `RAW_JUGADORES` | Participaciones individuales, incluidos los diez jugadores de cada partida |
-| `SISTEMA` | Última sincronización y su resultado |
+| **RESUMEN** | Resultados globales y rendimiento de equipos de cinco integrantes |
+| **PARTIDAS** | Historial de partidas oficiales y composiciones |
+| **REGISTRO** | Agregar IDs de partidas oficiales y revisar el estado de importación |
 
-**Winrate** es el porcentaje de victorias entre partidas válidas. `WR_MIN_95_%` es un indicador conservador para comparar resultados con muestras de distinto tamaño. Los remakes identificados por Riot no cuentan como victorias ni derrotas.
+### Agregar una partida
+1. Abrí **REGISTRO** y agregá el ID de Riot en la columna `MATCH_ID` (ejemplo: `LA2_1234567890`).
+2. Dejá `ESTADO` vacío o escribí `PENDIENTE`.
+3. Si ambos equipos tienen cinco miembros ACCA, indicá `AZUL` o `ROJO` en `LADO_ACCA`.
+4. Esperá la sincronización automática o pedile a un administrador que ejecute [Sincronizar ACCA](https://github.com/Bukaii/ACCA/actions/workflows/sync.yml).
 
-Las pestañas `RAW_*`, `DASHBOARD_STATS` y `STATS_*` las administra el sistema: no cambies sus valores manualmente.
+`PROCESADA` significa que la partida fue incorporada; `ERROR` requiere revisar la columna `MENSAJE`, corregir el problema y volver a escribir `PENDIENTE`.
 
-## 4. Actualizaciones automáticas
+Solo se cuentan partidas ingresadas expresamente que tengan cinco integrantes registrados en el mismo equipo.
 
-La hoja se sincroniza desde **GitHub Actions**, normalmente una vez por hora. La ejecución puede retrasarse. No es necesario dejar ninguna computadora encendida.
+## Archivo de jugadores (`GOOGLE_SHEET_ID_PLAYERS`)
 
-Para forzarla, un administrador del repositorio puede entrar en [GitHub Actions — Sincronizar ACCA](https://github.com/Bukaii/ACCA/actions/workflows/sync.yml), seleccionar **Run workflow** y ejecutar el proceso. El campo `match_ids` es opcional: permite registrar IDs separados por espacios sin escribirlos antes en la hoja.
+| Pestaña visible | Uso |
+|---|---|
+| **JUGADORES** | Registro de integrantes, Riot ID y región |
+| **RENDIMIENTO** | Clasificaciones individuales por jugador, campeón, rol, objeto y composición |
+| **PARTICIPACIONES** | Historial de partidas individuales, KDA, participación en kills, oro/min, CS/min, daño/min y objetos |
 
-Si la ejecución falla, las estadísticas pueden quedar sin actualizar. Consultá `SISTEMA` y el historial de Actions. No cambies credenciales ni hojas por tu cuenta si no sos administrador.
+En **JUGADORES**, completá `ALIAS`, `RIOT_ID` (por ejemplo `Jugador#LAS`), `REGION` (`LAS`, `LAN`, etc.) y `ACTIVO` (`SI` o `NO`). Las columnas `PUUID`, `ESTADO` y `MENSAJE` las gestiona el sistema.
 
-## 5. Reglas importantes
+## Diseño y conservación
 
-- Solo se cuentan partidas oficiales expresamente registradas.
-- El sistema debe reconocer cinco miembros de ACCA en un equipo.
-- Cada partida se identifica por su ID para evitar duplicados.
-- No edites encabezados, columnas automáticas ni datos `RAW_*`.
-- No publiques Riot API keys ni credenciales de Google en la hoja.
-- Las estadísticas avanzadas de objetos, timeline, gráficas y partidas manuales todavía no están disponibles en esta versión.
+Ambos archivos usan las mismas tablas claras, encabezados y franjas alternadas. Las pestañas técnicas antiguas se **ocultan, no se eliminan**: contienen los datos originales de Riot, timelines, compras, eventos y registros históricos. No las edites.
 
-Si aparece un error, comunicá al administrador el nombre de la pestaña, el ID de partida (si corresponde) y el texto de `MENSAJE`. Nunca compartas secretos.
+El sistema consulta las respuestas de partida y timeline de Riot y guarda una copia comprimida para análisis futuros. Los datos antiguos pueden requerir reprocesamiento si todavía están disponibles en Riot.
 
-## Datos avanzados de partidas
+## Actualizaciones
 
-El sistema genera nuevas pestañas: `RAW_DETALLE` (KDA, daño por tipo, oro/min, CS/min, runas, hechizos, visión, curación y escudos), `RAW_EQUIPOS` (objetivos y baneos), `RAW_EVENTOS` (eventos del timeline), `RAW_BUILDS` (compras y ventas), `STATS_JUGADORES` y `STATS_ROLES`.
+La sincronización se ejecuta desde GitHub Actions. Los usuarios solo tienen que utilizar las pestañas visibles. Los administradores pueden consultar [las ejecuciones](https://github.com/Bukaii/ACCA/actions) si una actualización falla.
 
-`RAW_RIOT_ARCHIVO` conserva comprimidas las respuestas completas de Riot (detalle de partida y timeline) para no perder campos que todavía no se muestran en tablas. No edites ninguna pestaña `RAW_*`.
-
-Las partidas procesadas antes de esta ampliación no tienen los datos avanzados automáticamente. El administrador puede ponerlas en `PENDIENTE` para reprocesarlas, siempre que Riot siga ofreciendo esos datos.
-
-Las tablas nuevas tienen encabezados congelados y filtros para explorar registros. El procesamiento se hace exclusivamente en GitHub Actions.
+**No compartas credenciales de Riot o Google en las hojas.**
