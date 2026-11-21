@@ -4,7 +4,7 @@ from .core import summary
 
 GENERAL = {
     "RESUMEN": ["SECCION","CLAVE","PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%","WR_MIN_95_%"],
-    "PARTIDAS": ["MATCH_ID","FECHA_UTC","MODO","PARCHE","LADO_ACCA","RESULTADO","INTEGRANTES","N_ACCA","FUENTE"],
+    "PARTIDAS": ["MATCH_ID","FECHA_UTC","MODO","VERSION","LADO_ACCA","RESULTADO","EQUIPO_ACCA","N_ACCA","COMPOSICION_ACCA","COMPOSICION_RIVAL","BANS_ACCA","BANS_RIVAL","DURACION_SEG","FUENTE"],
     "REGISTRO": ["MATCH_ID","ESTADO","MENSAJE","LADO_ACCA","PROCESADA_UTC"],
 }
 PLAYERS = {
@@ -86,8 +86,10 @@ def hide_legacy(book,keep):
 def build_general(matches):
     result=[]
     for label,key in (("GENERAL",lambda r:"ACCA"),
-                      ("EQUIPOS",lambda r:str(r.get("INTEGRANTES","")))):
+                      ("EQUIPOS",lambda r:str(r.get("EQUIPO_ACCA","")))):
         result += [[label]+r for r in summary(matches,key)]
+    for label,field in (("COMPOSICIONES","COMPOSICION_ACCA"),("RIVALES","COMPOSICION_RIVAL")):
+        result += [[label]+r for r in summary(matches,lambda m:str(m.get(field,"")))]
     return result
 
 def build_players(matches,players,details):
@@ -110,8 +112,8 @@ def build_players(matches,players,details):
         d=by_detail.get((mid,str(p.get("PUUID",""))),{})
         participations.append([mid,alias,champion,role,outcome,
              p.get("KILLS",0),p.get("DEATHS",0),p.get("ASSISTS",0),
-             d.get("KDA",""),d.get("KP_%",""),d.get("CS_MIN",""),
-             d.get("ORO_MIN",""),d.get("DANO_MIN",""),p.get("VISION",0),p.get("ITEMS","")])
+             d.get("KDA",p.get("KDA","")),d.get("KP_%",p.get("KP_%","")),d.get("CS_MIN",p.get("CS_MIN","")),
+             d.get("ORO_MIN",p.get("ORO_MIN","")),d.get("DANO_MIN",p.get("DANO_MIN","")),p.get("VISION_SCORE",p.get("VISION",0)),p.get("ITEMS","")])
         for section,key in (("JUGADORES",alias),("CAMPEONES",alias+" | "+champion),
                             ("ROLES",alias+" | "+role)):
             ranked.append({"SECTION":section,"KEY":key,"RESULTADO":outcome})
