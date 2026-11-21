@@ -93,7 +93,7 @@ def setup_players(book, players_book):
                    [[r.get(k,"") for k in TABS["JUGADORES"]] for r in source])
 
 def present(book, players_book):
-    matches=records(book,"RAW_PARTIDAS")
+    matches=records(book,"DETALLE_PARTIDAS")
     participants=records(book,"RAW_JUGADORES")
     details=records(book,"RAW_DETALLE")
     write_view(book,"RESUMEN",GENERAL["RESUMEN"],build_general(matches))
@@ -106,7 +106,7 @@ def present(book, players_book):
     style(players_book,PLAYERS)
     # Four clear, user-facing tabs. All technical/raw and other large tables
     # remain stored intact and accessible by unhiding, never deleted.
-    visible = set(GENERAL) | {"CAMPEONES"}
+    visible = set(GENERAL) | {"CAMPEONES", "EQUIPOS", "OBJETOS", "COMPOSICIONES", "DETALLE_PARTIDAS", "OBJETIVOS", "EVENTOS"}
     style(book, visible)
     hide_legacy(book, visible)
     hide_legacy(players_book,set(PLAYERS))
@@ -170,7 +170,7 @@ def rebuild(book):
     matches = records(book,"RAW_PARTIDAS")
     participants = records(book,"RAW_JUGADORES")
     write_rows(book,"DASHBOARD_STATS",TABS["DASHBOARD_STATS"],summary(matches,lambda r:"ACCA"))
-    write_rows(book,"STATS_EQUIPOS",TABS["STATS_EQUIPOS"],summary(matches,lambda r:str(r.get("INTEGRANTES",""))))
+    write_rows(book,"EQUIPOS",TABS["STATS_EQUIPOS"],summary(matches,lambda r:str(r.get("INTEGRANTES",""))))
     by_id = {str(r["MATCH_ID"]):r for r in matches}
     entries = []
     for p in participants:
@@ -209,8 +209,8 @@ def rebuild(book):
     for mid, champs in champions_by_match.items():
         if len(champs)==5:
             comp_entries.append({"RESULTADO":by_id[mid]["RESULTADO"],"KEY":" | ".join(sorted(champs))})
-    write_rows(book,"STATS_OBJETOS",EXTRA_TABS["STATS_OBJETOS"],summary(item_entries,lambda r:r["KEY"]))
-    write_rows(book,"STATS_COMPOSICIONES",EXTRA_TABS["STATS_COMPOSICIONES"],summary(comp_entries,lambda r:r["KEY"]))
+    write_rows(book,"OBJETOS",EXTRA_TABS["STATS_OBJETOS"],summary(item_entries,lambda r:r["KEY"]))
+    write_rows(book,"COMPOSICIONES",EXTRA_TABS["STATS_COMPOSICIONES"],summary(comp_entries,lambda r:r["KEY"]))
 
 def sync(book, players_book, ids=(), force=False):
     ensure(book)
@@ -230,7 +230,7 @@ def sync(book, players_book, ids=(), force=False):
     old_matches = [[r.get(k,"") for k in HEADERS_MATCH] for r in records(book,"RAW_PARTIDAS")]
     old_players = [[r.get(k,"") for k in HEADERS_PLAYER] for r in records(book,"RAW_JUGADORES")]
     incoming_matches, incoming_players = [],[]
-    advanced = {name: [] for name in ("RAW_RIOT_ARCHIVO","RAW_EVENTOS","RAW_EQUIPOS","RAW_DETALLE","RAW_BUILDS")}
+    advanced = {name: [] for name in ("RAW_RIOT_ARCHIVO","EVENTOS","OBJETIVOS","RAW_DETALLE","RAW_BUILDS")}
     changed = False
     for row in queue:
         if str(row.get("ESTADO","")).upper() not in ("","PENDIENTE"):
