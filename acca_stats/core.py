@@ -34,7 +34,7 @@ def summary(rows, key):
             for name,(n,w) in sorted(groups.items(), key=lambda x: (-wilson(x[1][1],x[1][0]),x[0]))]
 
 def parse_match(data, members, forced_side=None):
-    """Accept only a five-member official team, selected explicitly by queued ID."""
+    """Accept matches with 1–5 ACCA members on the selected side."""
     info = data["info"]
     participants = info["participants"]
     if len(participants) != 10:
@@ -46,15 +46,21 @@ def parse_match(data, members, forced_side=None):
     candidates = []
     for team, ps in teams.items():
         identified = [p for p in ps if p.get("puuid") in members]
-        if len(identified) == 5 and len(ps) == 5:
+        if identified and len(ps) == 5:
             candidates.append((team, identified))
     if forced_side:
         desired = {"AZUL": 100, "ROJO": 200}.get(forced_side.upper())
         if desired is None:
             raise ValueError("LADO_ACCA debe ser AZUL o ROJO")
         candidates = [c for c in candidates if c[0] == desired]
+    if not candidates:
+        raise ValueError("No se identificaron integrantes ACCA en el lado indicado")
+    # Without an explicit side, choose the team with the most ACCA members.
+    # A tie is ambiguous: never attribute a match to an arbitrary side.
+    most = max(len(identified) for _, identified in candidates)
+    candidates = [c for c in candidates if len(c[1]) == most]
     if len(candidates) != 1:
-        raise ValueError("Se requieren exactamente cinco integrantes ACCA en un equipo; revisá los PUUID y LADO_ACCA")
+        raise ValueError("Hay integrantes ACCA en ambos equipos; indicá LADO_ACCA (AZUL o ROJO)")
     team_id, own = candidates[0]
     win = bool(own[0]["win"])
     # gameEndedInEarlySurrender is Riot's explicit remake indicator.
@@ -63,7 +69,7 @@ def parse_match(data, members, forced_side=None):
     match = [match_id, info.get("gameCreation",""), info.get("gameMode",""),
              info.get("gameVersion",""), "AZUL" if team_id == 100 else "ROJO",
              "REMAKE" if remake else ("VICTORIA" if win else "DERROTA"),
-             "|".join(sorted(members[p["puuid"]] for p in own)), 5, "RIOT"]
+             "|".join(sorted(members[p["puuid"]] for p in own)), len(own), "RIOT"]
     players = []
     for p in participants:
         puuid = p.get("puuid","")
