@@ -307,6 +307,12 @@ def save_submission_queue(book, queue):
     current = merge_submission_rows(records(book, "PARTIDAS_PENDIENTES"),
                                     records(book, "REGISTRO"))
     merged = merge_submission_rows(current, queue)
+    updated = {row["MATCH_ID"]: row for row in queue}
+    for row in merged:
+        latest = updated.get(row["MATCH_ID"])
+        if latest and str(latest.get("ESTADO", "")).upper() not in ("", "PENDIENTE"):
+            for key in ("ESTADO", "MENSAJE", "PROCESADA_UTC"):
+                row[key] = latest.get(key, "")
     for tab, header in (("PARTIDAS_PENDIENTES", TABS["PARTIDAS_PENDIENTES"]),
                         ("REGISTRO", GENERAL["REGISTRO"])):
         write_rows(book, tab, header,
