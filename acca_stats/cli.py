@@ -104,11 +104,34 @@ def present(book, players_book):
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
     style(players_book,PLAYERS)
-    # Four clear, user-facing tabs. All technical/raw and other large tables
-    # remain stored intact and accessible by unhiding, never deleted.
-    visible = set(GENERAL) | {"CAMPEONES", "STATS_EQUIPOS", "STATS_OBJETOS", "STATS_COMPOSICIONES", "RAW_PARTIDAS", "RAW_EQUIPOS", "RAW_EVENTOS"}
+    # Keep internal identifiers unchanged for data ingestion and rebuilding.
+    # Expose complete, readable copies of the major analytics tables.
+    friendly = {
+        "STATS_EQUIPOS": "EQUIPOS",
+        "STATS_OBJETOS": "OBJETOS",
+        "STATS_COMPOSICIONES": "COMPOSICIONES",
+        "RAW_PARTIDAS": "DETALLE DE PARTIDAS",
+        "RAW_EQUIPOS": "OBJETIVOS",
+        "RAW_EVENTOS": "EVENTOS",
+    }
+    for source, destination in friendly.items():
+        source_ws = book.worksheet(source)
+        values = source_ws.get_all_values()
+        if values:
+            write_view(book, destination, values[0], values[1:])
+    visible = set(GENERAL) | {"CAMPEONES"} | set(friendly.values())
     style(book, visible)
     hide_legacy(book, visible)
+    # Display the most useful views first, keeping all technical tables intact.
+    ordered = ["RESUMEN", "PARTIDAS", "DETALLE DE PARTIDAS",
+               "CAMPEONES", "EQUIPOS", "COMPOSICIONES",
+               "OBJETOS", "OBJETIVOS", "EVENTOS", "REGISTRO"]
+    book.batch_update({"requests": [
+        {"updateSheetProperties": {
+            "properties": {"sheetId": book.worksheet(name).id, "index": index},
+            "fields": "index"
+        }} for index, name in enumerate(ordered)
+    ]})
     hide_legacy(players_book,set(PLAYERS))
 
 def records(book, tab):
