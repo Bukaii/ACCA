@@ -55,7 +55,7 @@ def style(book,names):
         ws=book.worksheet(name)
         gid=ws.id
         width=min(ws.col_count, max(7,len(ws.row_values(1))))
-        end=max(ws.row_count, len(ws.get_all_values())+10)
+        end=ws.row_count
         requests.extend([
             {"updateSheetProperties":{"properties":{"sheetId":gid,"gridProperties":{"frozenRowCount":1,"hideGridlines":True}},"fields":"gridProperties.frozenRowCount,gridProperties.hideGridlines"}},
             {"repeatCell":{"range":{"sheetId":gid,"startRowIndex":0,"endRowIndex":1,"startColumnIndex":0,"endColumnIndex":width},
