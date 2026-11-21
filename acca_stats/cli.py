@@ -410,6 +410,36 @@ def expanded_players(data, members, match):
     return output
 
 
+def repair_from_archive(book, members):
+    """Repair incomplete imported matches from saved Riot payloads, without network calls."""
+    from .analytics import unarchive
+    from collections import defaultdict
+    chunks = defaultdict(list)
+    for row in records(book, "RAW_RIOT_ARCHIVO"):
+        if row.get("TIPO") == "MATCH" and row.get("GZIP_BASE64"):
+            chunks[str(row["MATCH_ID"])].append([row.get(k) for k in EXTRA_TABS["RAW_RIOT_ARCHIVO"]])
+    match_columns = book.worksheet("RAW_PARTIDAS").row_values(1)
+    player_columns = book.worksheet("RAW_JUGADORES").row_values(1)
+    matches = [[r.get(k, "") for k in match_columns] for r in records(book, "RAW_PARTIDAS")]
+    players = [[r.get(k, "") for k in player_columns] for r in records(book, "RAW_JUGADORES")]
+    changed = False
+    for mid, rows in chunks.items():
+        current = next((dict(zip(match_columns, row)) for row in matches if row and row[0] == mid), None)
+        if not current or (current.get("COMPOSICION_ACCA") and current.get("DURACION_SEG")):
+            continue
+        data = unarchive(rows)
+        match, _ = parse_match(data, members, current.get("LADO_ACCA") or None)
+        match_values = expanded_match(data, match, members)
+        matches = upsert(matches, [[match_values.get(k, "") for k in match_columns]])
+        players = upsert_participants(players, [[p.get(k, "") for k in player_columns]
+                                                for p in expanded_players(data, members, match)])
+        changed = True
+    if changed:
+        write_rows(book, "RAW_PARTIDAS", match_columns, matches)
+        write_rows(book, "RAW_JUGADORES", player_columns, players)
+    return changed
+
+
 def sync(book, players_book, ids=(), force=False, refresh_ids=False):
     ensure(book)
     setup_players(book,players_book)
@@ -490,7 +520,8 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
         write_rows(book,"RAW_PARTIDAS",match_columns,upsert(old_matches,incoming_matches))
         write_rows(book,"RAW_JUGADORES",player_columns,upsert_participants(old_players,incoming_players))
     save_submission_queue(book, queue)
-    if changed or force:
+    repaired = repair_from_archive(book, members)
+    if changed or repaired or force:
         rebuild(book)
     write_rows(book,"SISTEMA",TABS["SISTEMA"],[["ULTIMA_EJECUCION_UTC",datetime.now(timezone.utc).isoformat()],
                                                ["RESULTADO","OK" if changed else "SIN_CAMBIOS"]])
@@ -538,6 +569,8 @@ def main():
         elif args.command == "rebuild":
             ensure(book)
             setup_players(book,players_book)
+            members = resolve_players(players_book)
+            repair_from_archive(book, members)
             rebuild(book)
             present(book,players_book)
         else:
