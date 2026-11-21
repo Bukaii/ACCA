@@ -173,20 +173,41 @@ def present(book, players_book):
         # Dashboard-like visual hierarchy: a legible identity banner,
         # distinct section cards, separated table headers and breathing room.
         # Formatting only: never delete, move or truncate historical metrics.
-        section_titles = {"Resumen histórico","Por campeón","Por rol","Objetos finales más usados",
-                          "Builds por campeón (orden real de compra)","Compañeros",
-                          "Evolución mensual","Historial (últimas 50 partidas)",
-                          "HISTORIAL DE PARTIDAS REGISTRADAS"}
-        section_rows = [i for i,row in enumerate(rows)
-                        if row and str(row[0]).strip() in section_titles]
-        description_rows = [i for i,row in enumerate(rows)
-                            if i>2 and len(row)==1 and str(row[0]).strip()
-                            and i not in section_rows and row[0] != "Sin datos todavía"]
-        empty_state_rows = [i for i,row in enumerate(rows)
-                            if row and row[0]=="Sin datos todavía"]
-        header_rows = [i for i,row in enumerate(rows)
-                       if len(row)>1 and row[0] in
-                       ("PARTIDAS","CAMPEON","ROL","OBJETO","MATCH_ID","COMPAÑERO","MES","FECHA_UTC")]
+        # Classify every section by its position and surrounding table,
+        # not by a short hardcoded list of examples.
+        def filled(row):
+            return [str(v).strip() for v in row if str(v).strip()]
+        def single(i):
+            return i < len(rows) and len(filled(rows[i])) == 1
+        def blank(i):
+            return i < 0 or i >= len(rows) or not filled(rows[i])
+        def looks_header(row):
+            cells = filled(row)
+            if len(cells)<2:
+                return False
+            first = cells[0]
+            return (first == first.upper() and any(c.isalpha() for c in first)
+                    and all(len(c)<65 for c in cells[:5]))
+        section_rows = []
+        description_rows = []
+        empty_state_rows = []
+        header_rows = []
+        for i,row in enumerate(rows):
+            if i < 3 or not filled(row):
+                continue
+            label = str(row[0]).strip()
+            if looks_header(row):
+                header_rows.append(i)
+            elif single(i) and label.casefold().startswith(("sin datos","no hay datos")):
+                empty_state_rows.append(i)
+            elif single(i) and blank(i-1):
+                section_rows.append(i)
+            elif single(i) and i-1 in section_rows:
+                description_rows.append(i)
+            elif single(i) and i+1<len(rows) and looks_header(rows[i+1]):
+                description_rows.append(i)
+            elif single(i):
+                description_rows.append(i)
         navy = {"red":0.12,"green":0.19,"blue":0.30}
         blue = {"red":0.19,"green":0.32,"blue":0.49}
         pale = {"red":0.91,"green":0.94,"blue":0.98}
