@@ -85,7 +85,6 @@ def ensure(book, players_book=None):
 
 def setup_players(book, players_book):
     """Copy player registry once; never discard a populated destination registry."""
-    ensure_tab(players_book,"IDENTIDADES",PLAYERS["IDENTIDADES"])
     dest = ensure_tab(players_book,"JUGADORES",TABS["JUGADORES"])
     source = records(book,"JUGADORES")
     existing = dest.get_all_records()
@@ -161,7 +160,7 @@ def present(book, players_book):
     ]
     for destination in (book, players_book):
         write_view(destination,"GUIA",guide[0],guide[1:])
-    player_names = set(PLAYERS) | {"GUIA"} | {ws.title for ws in players_book.worksheets()
+    player_names = (set(PLAYERS) - {"IDENTIDADES"}) | {"GUIA"} | {ws.title for ws in players_book.worksheets()
                                    if ws.title.startswith("J_")}
     style(players_book,player_names)
     # Keep internal identifiers unchanged for data ingestion and rebuilding.
@@ -225,31 +224,21 @@ def write_rows(book, tab, header, rows):
         ws.batch_clear([f"A{len(output)+2}:{rowcol_to_a1(len(old)+1,len(columns))}"])
 
 def resolve_players(book):
-    """Resolve primary and historical Riot IDs to stable PUUIDs and ACCA aliases."""
+    """Each row in JUGADORES is a Riot account; repeated aliases are supported."""
     from urllib.parse import quote
-    primary = records(book, "JUGADORES")
-    secondary = records(book, "IDENTIDADES")
-    seen = set()
+    rows = records(book, "JUGADORES")
     mapping = {}
-    def resolve(row, is_primary):
+    for row in rows:
         alias = str(row.get("ALIAS", "")).strip()
         riot_id = str(row.get("RIOT_ID", "")).strip()
         region = str(row.get("REGION", "")).upper().strip()
         if not alias and not riot_id:
-            return
-        if not alias:
-            row["ESTADO"], row["MENSAJE"] = "ERROR", "Ingresá el alias ACCA"
-            return
-        if is_primary and alias.casefold() in seen:
-            row["ESTADO"], row["MENSAJE"] = "ERROR", "Alias duplicado"
-            return
-        if is_primary:
-            seen.add(alias.casefold())
-            if str(row.get("ACTIVO", "SI")).upper() == "NO":
-                return
-        if "#" not in riot_id or region not in ROUTES:
-            row["ESTADO"], row["MENSAJE"] = "ERROR", "RIOT_ID o REGION inválidos"
-            return
+            continue
+        if not alias or "#" not in riot_id or region not in ROUTES:
+            row["ESTADO"], row["MENSAJE"] = "ERROR", "Completá ALIAS, RIOT_ID y REGION"
+            continue
+        if str(row.get("ACTIVO", "SI")).upper() == "NO":
+            continue
         if not row.get("PUUID") or row.get("ESTADO") != "OK":
             name, tag = riot_id.rsplit("#", 1)
             try:
@@ -260,17 +249,11 @@ def resolve_players(book):
         puuid = str(row.get("PUUID", "")).strip()
         if puuid and row.get("ESTADO") == "OK":
             if puuid in mapping and mapping[puuid] != alias:
-                row["ESTADO"], row["MENSAJE"] = "ERROR", "PUUID asignado a otro alias ACCA"
+                row["ESTADO"], row["MENSAJE"] = "ERROR", "Cuenta vinculada a otro alias"
             else:
                 mapping[puuid] = alias
-    for row in primary:
-        resolve(row, True)
-    for row in secondary:
-        resolve(row, False)
     write_rows(book, "JUGADORES", TABS["JUGADORES"],
-               [[r.get(k, "") for k in TABS["JUGADORES"]] for r in primary])
-    write_rows(book, "IDENTIDADES", PLAYERS["IDENTIDADES"],
-               [[r.get(k, "") for k in PLAYERS["IDENTIDADES"]] for r in secondary])
+               [[r.get(k, "") for k in TABS["JUGADORES"]] for r in rows])
     return mapping
 
 
