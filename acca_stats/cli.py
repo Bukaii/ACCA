@@ -163,7 +163,6 @@ def present(book, players_book):
         from gspread.utils import rowcol_to_a1
         # Unmerge old report cells and remove stale section bars before writing.
         players_book.batch_update({"requests":[
-            {"unmergeCells":{"range":{"sheetId":ws.id}}},
             {"repeatCell":{"range":{"sheetId":ws.id},
                 "cell":{"userEnteredFormat":{}},"fields":"userEnteredFormat"}}
         ]})
