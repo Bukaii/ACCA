@@ -98,8 +98,8 @@ def present(book, players_book):
     details=records(book,"RAW_DETALLE")
     write_view(book,"RESUMEN",GENERAL["RESUMEN"],build_general(matches))
     write_view(book,"PARTIDAS",GENERAL["PARTIDAS"],[[m.get(k,"") for k in GENERAL["PARTIDAS"]] for m in matches])
-    queue=records(book,"PARTIDAS_PENDIENTES")
-    write_view(book,"REGISTRO",GENERAL["REGISTRO"],[[r.get(k,"") for k in GENERAL["REGISTRO"]] for r in queue])
+    # REGISTRO is the user-facing submission queue; do not overwrite it from a legacy tab.
+    # Existing entries and statuses must survive every presentation refresh.
     ranking,history=build_players(matches,participants,details)
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
@@ -140,11 +140,14 @@ def present(book, players_book):
         values = source_ws.get_all_values()
         if values:
             write_view(book, destination, values[0], values[1:])
-    visible = set(GENERAL) | {"CAMPEONES"} | set(friendly.values())
+    visible = set(GENERAL) | {"CAMPEONES", "PARTIDAS_PENDIENTES", "PARTIDAS_MANUALES"} | set(friendly.values())
     style(book, visible)
     hide_legacy(book, visible)
+    for ws in book.worksheets():
+        if ws.title in visible and ws._properties.get("hidden", False):
+            book.batch_update({"requests": [{"updateSheetProperties": {"properties": {"sheetId": ws.id, "hidden": False}, "fields": "hidden"}}]})
     # Display the most useful views first, keeping all technical tables intact.
-    ordered = ["RESUMEN", "PARTIDAS", "DETALLE DE PARTIDAS",
+    ordered = ["REGISTRO", "PARTIDAS_PENDIENTES", "PARTIDAS_MANUALES", "RESUMEN", "PARTIDAS", "DETALLE DE PARTIDAS",
                "CAMPEONES", "EQUIPOS", "COMPOSICIONES",
                "OBJETOS", "OBJETIVOS", "EVENTOS", "REGISTRO"]
     book.batch_update({"requests": [
@@ -153,7 +156,10 @@ def present(book, players_book):
             "fields": "index"
         }} for index, name in enumerate(ordered)
     ]})
-    hide_legacy(players_book,player_names)
+    # All individual player reports must remain visible after every sync.
+    for ws in players_book.worksheets():
+        if ws.title.startswith("J_") and ws._properties.get("hidden", False):
+            players_book.batch_update({"requests": [{"updateSheetProperties": {"properties": {"sheetId": ws.id, "hidden": False}, "fields": "hidden"}}]})
 
 def records(book, tab):
     return book.worksheet(tab).get_all_records()
