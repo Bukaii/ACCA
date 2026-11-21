@@ -676,7 +676,7 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
     old_matches = [[r.get(k,"") for k in match_columns] for r in records(book,"RAW_PARTIDAS")]
     old_players = [[r.get(k,"") for k in player_columns] for r in records(book,"RAW_JUGADORES")]
     incoming_matches, incoming_players = [],[]
-    advanced = {name: [] for name in ("RAW_RIOT_ARCHIVO","RAW_EVENTOS","RAW_EQUIPOS","RAW_DETALLE","RAW_BUILDS")}
+    advanced = {name: [] for name in ("RAW_EVENTOS","RAW_EQUIPOS","RAW_DETALLE","RAW_BUILDS")}
     changed = False
     for row in queue:
         if str(row.get("ESTADO","")).upper() not in ("","PENDIENTE"):
@@ -693,17 +693,20 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
             data = supabase_archive.load(mid,"match") if supabase_archive.configured() else None
             if data is None:
                 data = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}")
-            match,players = parse_match(data,members,str(row.get("LADO_ACCA","")).strip() or None)
             timeline = supabase_archive.load(mid,"timeline") if supabase_archive.configured() else None
             if timeline is None:
                 timeline = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}/timeline")
-            if supabase_archive.configured():
-                supabase_archive.store_pair(mid,data,timeline)
+            if not supabase_archive.configured():
+                raise RuntimeError("Supabase es obligatorio para procesar partidas")
+            supabase_archive.store_pair(mid,data,timeline)
+            data = supabase_archive.load(mid,"match")
+            timeline = supabase_archive.load(mid,"timeline")
+            if data is None or timeline is None:
+                raise RuntimeError("No se pudo recuperar el JSON archivado en Supabase")
+            match,players = parse_match(data,members,str(row.get("LADO_ACCA","")).strip() or None)
             side = 100 if match[4] == "AZUL" else 200
             detail, teams = detailed_rows(data,members,side)
             events, builds = timeline_rows(mid,timeline)
-            advanced["RAW_RIOT_ARCHIVO"].extend(archive(mid,"MATCH",data))
-            advanced["RAW_RIOT_ARCHIVO"].extend(archive(mid,"TIMELINE",timeline))
             advanced["RAW_EVENTOS"].extend(events)
             advanced["RAW_EQUIPOS"].extend(teams)
             advanced["RAW_DETALLE"].extend(detail)
