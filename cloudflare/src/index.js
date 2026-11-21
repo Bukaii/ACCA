@@ -110,7 +110,12 @@ export default {
       if (current?.status==="PROCESANDO"||current?.status==="PENDIENTE")
         return json({type:4,data:{content:"La partida "+id+" ya está en proceso.",flags:64}});
       await setJob(env,id,{status:"PENDIENTE",requested_by:interaction.member?.user?.id||null,discord_application_id:interaction.application_id,error_message:null});
-      await env.ACCA_QUEUE.send({id,appId:interaction.application_id,token:interaction.token});
+      try {
+        await env.ACCA_QUEUE.send({id,appId:interaction.application_id,token:interaction.token});
+      } catch (error) {
+        await setJob(env,id,{status:"ERROR",error_message:"No se pudo encolar el trabajo"});
+        throw error;
+      }
       return json({type:4,data:{content:"Partida "+id+" recibida. Descarga en curso.",flags:64}});
     } catch(e) {
       console.error("Error encolando",String(e));
@@ -133,6 +138,10 @@ export default {
         if ([400,403,404].includes(e.status)) {
           await setJob(env,id,{status:"ERROR",error_message:String(e).slice(0,160)});
           await followup(env,appId,token,"No se pudo descargar "+id+": "+String(e));
+          msg.ack();
+        } else if (msg.attempts >= 5) {
+          await setJob(env,id,{status:"ERROR",error_message:"Reintentos agotados: "+String(e).slice(0,120)});
+          await followup(env,appId,token,"No se pudo archivar "+id+" tras varios intentos.");
           msg.ack();
         } else {
           try { await setJob(env,id,{status:"PENDIENTE",error_message:String(e).slice(0,160)}); } catch {}
