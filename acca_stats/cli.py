@@ -144,7 +144,24 @@ def present(book, players_book):
         old_rows = destination.get_all_values()
         if len(old_rows) > len(values):
             destination.batch_clear([f"A{len(values)+1}:Z{len(old_rows)}"])
-    player_names = set(PLAYERS) | {ws.title for ws in players_book.worksheets()
+    guide = [
+        ["CAMPO","SIGNIFICADO"],
+        ["MATCH_ID","Identificador único de partida de Riot; LA2_ seguido del número"],
+        ["REGISTRO","Ingresar MATCH_ID; PENDIENTE = por procesar, PROCESADA = importada, ERROR = requiere revisión"],
+        ["PARTIDAS_PENDIENTES","Historial técnico de la cola; incluye partidas ya procesadas"],
+        ["N_ACCA","Cantidad de miembros ACCA del lado seleccionado (entre 1 y 5)"],
+        ["EQUIPO_ACCA","Miembros ACCA que participaron juntos; no es la composición de cinco campeones"],
+        ["COMPOSICION_ACCA","Los cinco campeones del lado elegido, sean o no jugadores ACCA"],
+        ["WINRATE_%","Porcentaje de victorias: VICTORIAS dividido por PARTIDAS"],
+        ["WR_MIN_95_%","Límite inferior estadístico de Wilson al 95%; ranking conservador, no otro porcentaje de victorias"],
+        ["CONFIANZA BAJA","Pocas partidas observadas: el resultado todavía no es fiable"],
+        ["CONFIANZA MEDIA / ALTA","Más partidas observadas; los umbrales dependen de la configuración del análisis"],
+        ["RAW_*","Tablas originales para exportación futura; no modificar manualmente"],
+        ["IDENTIDADES","Una fila por Riot ID adicional o anterior, usando el mismo ALIAS ACCA"],
+    ]
+    for destination in (book, players_book):
+        write_view(destination,"GUIA",guide[0],guide[1:])
+    player_names = set(PLAYERS) | {"GUIA"} | {ws.title for ws in players_book.worksheets()
                                    if ws.title.startswith("J_")}
     style(players_book,player_names)
     # Keep internal identifiers unchanged for data ingestion and rebuilding.
@@ -162,14 +179,14 @@ def present(book, players_book):
         values = source_ws.get_all_values()
         if values:
             write_view(book, destination, values[0], values[1:])
-    visible = set(GENERAL) | {"CAMPEONES", "PARTIDAS_PENDIENTES"} | set(friendly.values())
+    visible = set(GENERAL) | {"CAMPEONES", "PARTIDAS_PENDIENTES", "GUIA"} | set(friendly.values())
     style(book, visible)
     hide_legacy(book, visible)
     for ws in book.worksheets():
         if ws.title in visible and ws._properties.get("hidden", False):
             book.batch_update({"requests": [{"updateSheetProperties": {"properties": {"sheetId": ws.id, "hidden": False}, "fields": "hidden"}}]})
     # Display the most useful views first, keeping all technical tables intact.
-    ordered = ["REGISTRO", "PARTIDAS_PENDIENTES", "RESUMEN", "PARTIDAS", "DETALLE DE PARTIDAS",
+    ordered = ["REGISTRO", "PARTIDAS_PENDIENTES", "GUIA", "RESUMEN", "PARTIDAS", "DETALLE DE PARTIDAS",
                "CAMPEONES", "EQUIPOS", "COMPOSICIONES",
                "OBJETOS", "OBJETIVOS", "EVENTOS", "REGISTRO"]
     book.batch_update({"requests": [
