@@ -106,7 +106,14 @@ def present(book, players_book):
     style(book,GENERAL)
     style(players_book,PLAYERS)
     # Historical RAW and old STATS remain available through unhide, never deleted.
-    hide_legacy(book,set(GENERAL))
+    # Keep the full general analytics visible; hide only individual player tabs.
+    general_detail = {
+        "DASHBOARD_STATS", "STATS_CAMPEONES", "STATS_EQUIPOS",
+        "STATS_OBJETOS", "STATS_COMPOSICIONES", "RAW_PARTIDAS",
+        "RAW_EQUIPOS", "RAW_EVENTOS", "RAW_RIOT_ARCHIVO",
+        "PARTIDAS_MANUALES", "CANDIDATAS", "SISTEMA",
+    }
+    hide_legacy(book,set(GENERAL) | general_detail)
     hide_legacy(players_book,set(PLAYERS))
 
 def records(book, tab):
