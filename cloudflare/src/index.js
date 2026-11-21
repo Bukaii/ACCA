@@ -129,7 +129,7 @@ async function registerCommands(env) {
   if (!env.DISCORD_BOT_TOKEN||!env.DISCORD_APPLICATION_ID) throw new Error("Discord Bot Token/Application ID missing");
   const commands=[
     {name:"partida",description:"Archivar una partida oficial de ACCA",options:[{name:"id",description:"ID de Riot (ej. LA2_1638964338)",type:3,required:true}]},
-    {name:"jugador",description:"Vincular una cuenta de Riot a un alias ACCA",options:[
+    {name:"jugadores",description:"Vincular una cuenta de Riot a un alias ACCA",options:[
       {name:"alias",description:"Alias estable del jugador",type:3,required:true},
       {name:"riot_id",description:"Nombre#TAG de Riot",type:3,required:true}
     ]}
@@ -151,13 +151,13 @@ export default {
     let interaction;
     try { interaction=JSON.parse(body); } catch { return new Response("Invalid JSON",{status:400}); }
     if (interaction.type===1) return json({type:1});
-    if (interaction.type!==2||!["partida","jugador"].includes(interaction.data?.name)) return json({type:4,data:{content:"Comando no reconocido.",flags:64}});
+    if (interaction.type!==2||!["partida","jugador","jugadores"].includes(interaction.data?.name)) return json({type:4,data:{content:"Comando no reconocido.",flags:64}});
     const allowed=(env.DISCORD_ALLOWED_ROLE_IDS||"").split(",").map(x=>x.trim()).filter(Boolean);
     const roles=interaction.member?.roles||[];
     const administrator=(BigInt(interaction.member?.permissions||"0")&8n)!==0n;
     if (!interaction.guild_id||!(administrator||allowed.some(role=>roles.includes(role))))
       return json({type:4,data:{content:"No tenés permiso para registrar partidas.",flags:64}});
-    if (interaction.data.name==="jugador") {
+    if (interaction.data.name==="jugador"||interaction.data.name==="jugadores") {
       const alias=interaction.data.options?.find(x=>x.name==="alias")?.value;
       const riotId=interaction.data.options?.find(x=>x.name==="riot_id")?.value;
       try {
