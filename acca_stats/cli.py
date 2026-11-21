@@ -1,13 +1,10 @@
-"""Command line and Google Sheets / Riot integrations."""
+"""Google Sheets reporting from archived Supabase match data."""
 import argparse
 import json
 import os
 import sys
-import time
 from datetime import datetime, timezone
-from urllib.parse import urlparse
 import gspread
-import requests
 from dotenv import load_dotenv
 from .core import TABS, HEADERS_MATCH, HEADERS_PLAYER, parse_match, upsert, summary
 from .analytics import EXTRA_TABS, archive, detailed_rows, timeline_rows, associate_builds, replace_by_match, unarchive
@@ -17,32 +14,6 @@ from .presentation import GENERAL, PLAYERS, ensure_tab, write_view, style, hide_
 ROUTES = {"LAS":"americas","LAN":"americas","NA":"americas","BR":"americas",
           "EUW":"europe","EUNE":"europe","TR":"europe","RU":"europe",
           "KR":"asia","JP":"asia","OCE":"sea","PH":"sea","SG":"sea","TH":"sea","TW":"sea","VN":"sea"}
-PLATFORMS = {"LA2":"americas","LA1":"americas","NA1":"americas","BR1":"americas",
-             "EUW1":"europe","EUN1":"europe","TR1":"europe","RU":"europe",
-             "KR":"asia","JP1":"asia","OC1":"sea","PH2":"sea","SG2":"sea","TH2":"sea","TW2":"sea","VN2":"sea"}
-
-def riot_get(url):
-    key = os.environ["RIOT_API_KEY"]
-    for attempt in range(4):
-        try:
-            r = requests.get(url, headers={"X-Riot-Token":key}, timeout=25)
-        except requests.RequestException:
-            if attempt == 3:
-                raise
-            time.sleep(2 ** attempt)
-            continue
-        if r.status_code in (401,403):
-            raise RuntimeError("Riot API rechazó la clave (401/403)")
-        if r.status_code == 429 or r.status_code >= 500:
-            if attempt == 3:
-                raise RuntimeError(f"Riot temporalmente no disponible: {r.status_code}")
-            wait = r.headers.get("Retry-After", "")
-            time.sleep(min(120, float(wait)) if wait.replace(".","",1).isdigit() else 2**attempt)
-            continue
-        r.raise_for_status()
-        return r.json()
-    raise RuntimeError("Riot no respondió")
-
 def connect(key="GOOGLE_SHEET_ID"):
     sheet_id = os.environ[key]
     if "/spreadsheets/d/" in sheet_id:
@@ -228,13 +199,12 @@ def resolve_players(book):
             continue
         if str(row.get("ACTIVO", "SI")).upper() == "NO":
             continue
-        if not row.get("PUUID") or row.get("ESTADO") != "OK":
-            name, tag = riot_id.rsplit("#", 1)
-            try:
-                data = riot_get(f"https://{ROUTES[region]}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{quote(name,safe='')}/{quote(tag,safe='')}")
-                row["PUUID"], row["ESTADO"], row["MENSAJE"] = data["puuid"], "OK", ""
-            except Exception as exc:
-                row["ESTADO"], row["MENSAJE"] = "ERROR", str(exc)[:150]
+        # PUUID is a stable identifier already registered in the spreadsheet.
+        # Reporting never calls Riot; resolve missing PUUIDs outside this pipeline.
+        if not str(row.get("PUUID", "")).strip():
+            row["ESTADO"], row["MENSAJE"] = "ERROR", "Falta PUUID; completalo para asociar partidas"
+            continue
+        row["ESTADO"], row["MENSAJE"] = "OK", ""
         puuid = str(row.get("PUUID", "")).strip()
         if puuid and row.get("ESTADO") == "OK":
             if puuid in mapping and mapping[puuid] != alias:
@@ -471,7 +441,7 @@ def repair_from_archive(book, members):
 
 
 def sync(book, players_book, ids=(), force=False, refresh_ids=False):
-    """Google Sheets is an input and reporting UI; Supabase stores Riot data."""
+    """Build Google Sheets reports exclusively from Supabase archives."""
     if not supabase_archive.configured():
         raise RuntimeError("Faltan credenciales de Supabase")
     ensure(book)
@@ -489,35 +459,20 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
             for row in queue:
                 if row["MATCH_ID"] == mid:
                     row["ESTADO"] = "PENDIENTE"
+    # Discord/Cloudflare is the only ingestion path. Sheets never downloads
+    # from Riot and never writes original match/timeline archives.
+    archived_ids = supabase_archive.list_match_ids()
+    archived = set(archived_ids)
     for row in queue:
-        mid = row["MATCH_ID"]
-        if row.get("ESTADO") == "PROCESADA" and not refresh_ids:
-            continue
-        route = PLATFORMS.get(mid.split("_",1)[0])
-        if not route:
-            row["ESTADO"],row["MENSAJE"]="ERROR","Plataforma desconocida"
-            continue
-        try:
-            data = supabase_archive.load(mid,"match")
-            timeline = supabase_archive.load(mid,"timeline")
-            if data is None:
-                data = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}")
-            if timeline is None:
-                timeline = riot_get(f"https://{route}.api.riotgames.com/lol/match/v5/matches/{mid}/timeline")
-            supabase_archive.store_pair(mid,data,timeline)
-            row["ESTADO"],row["MENSAJE"]="PROCESADA",""
-            row["PROCESADA_UTC"]=datetime.now(timezone.utc).isoformat()
-        except requests.HTTPError as exc:
-            if exc.response is not None and exc.response.status_code == 404:
-                row["ESTADO"],row["MENSAJE"]="ERROR","Partida no encontrada en Riot"
-            else:
-                raise
-        except ValueError as exc:
-            row["ESTADO"],row["MENSAJE"]="ERROR",str(exc)[:150]
+        if row["MATCH_ID"] in archived:
+            row["ESTADO"], row["MENSAJE"] = "PROCESADA", ""
+            row["PROCESADA_UTC"] = datetime.now(timezone.utc).isoformat()
+        else:
+            row["ESTADO"], row["MENSAJE"] = "PENDIENTE", "Esperando archivo en Supabase (usá /partida en Discord)"
     write_rows(book,"REGISTRO",GENERAL["REGISTRO"],
                [[r.get(k,"") for k in GENERAL["REGISTRO"]] for r in queue])
     matches,participants,details = [],[],[]
-    for mid in supabase_archive.list_match_ids():
+    for mid in archived_ids:
         data = supabase_archive.load(mid,"match")
         timeline = supabase_archive.load(mid,"timeline")
         if data is None or timeline is None:
@@ -550,7 +505,7 @@ def main():
     refresh = sub.add_parser("refresh-match")
     refresh.add_argument("ids",nargs="+")
     args = parser.parse_args()
-    required = ["GOOGLE_SHEET_ID","GOOGLE_SHEET_ID_PLAYERS","RIOT_API_KEY"]
+    required = ["GOOGLE_SHEET_ID","GOOGLE_SHEET_ID_PLAYERS","SUPABASE_URL","SUPABASE_SECRET_KEY"]
     required += [] if os.getenv("GOOGLE_CREDENTIALS_JSON") else ["GOOGLE_CREDENTIALS_FILE"]
     missing = [k for k in required if not os.getenv(k)]
     if missing:
@@ -562,7 +517,7 @@ def main():
             raise ValueError("GOOGLE_SHEET_ID_PLAYERS debe ser una hoja diferente de GOOGLE_SHEET_ID")
         if args.command == "check":
             print("Google Sheets: OK")
-            print("Riot API: validación efectiva al consultar una partida/jugador")
+            print("Supabase: archivo de partidas es la única fuente de estadísticas")
         elif args.command == "init":
             ensure(book)
             setup_players(book,players_book)
