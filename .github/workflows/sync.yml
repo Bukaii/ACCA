@@ -41,6 +41,8 @@ jobs:
       - name: Ejecutar operación solicitada
         env:
           RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
+          SUPABASE_URL: https://nbariaodntfhgnldusmq.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_ID_PLAYERS: ${{ secrets.GOOGLE_SHEET_ID_PLAYERS }}
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
