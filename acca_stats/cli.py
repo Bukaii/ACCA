@@ -51,7 +51,10 @@ def connect(key="GOOGLE_SHEET_ID"):
         gc = gspread.service_account_from_dict(json.loads(raw), http_client=gspread.BackOffHTTPClient)
     else:
         gc = gspread.service_account(filename=os.environ["GOOGLE_CREDENTIALS_FILE"], http_client=gspread.BackOffHTTPClient)
-    return gc.open_by_key(sheet_id)
+    try:
+        return gc.open_by_key(sheet_id)
+    except Exception as exc:
+        raise RuntimeError(f"No se puede abrir {key}: {type(exc).__name__}: {exc!r}. Verificá el ID y compartí el archivo con la cuenta de servicio de Google.") from exc
 
 def ensure(book, players_book=None):
     """Add missing columns without moving or deleting existing user data."""
@@ -329,5 +332,5 @@ def main():
             sync(book,players_book,getattr(args,"ids",()),args.command=="sync")
         print("Operación terminada")
     except Exception as exc:
-        print(f"ERROR: {exc}",file=sys.stderr)
+        print(f"ERROR: {type(exc).__name__}: {exc!r}",file=sys.stderr)
         sys.exit(1)
