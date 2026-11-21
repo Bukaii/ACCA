@@ -111,30 +111,31 @@ def present(book, players_book, matches=None, participants=None, details=None):
         used_names.add(name)
         ws=write_view(players_book,name,PLAYERS["PARTICIPACIONES"],by_alias[alias])
         alias_tabs[alias]=ws.id
-    base_url="https://docs.google.com/spreadsheets/d/"+players_book.id+"/edit#gid="
-    def linked_alias(alias):
-        alias=str(alias)
-        gid=alias_tabs.get(alias)
-        if gid is None:
-            return alias
-        return '=HYPERLINK("'+base_url+str(gid)+'";"'+alias.replace('"','""')+'")'
-    ranking=[[r[0],linked_alias(r[1]) if r[0]=="JUGADORES" else r[1],*r[2:]] for r in ranking]
-    history=[[r[0],linked_alias(r[1]),*r[2:]] for r in history]
+    # Write plain aliases and apply native rich-text links instead of formulas.
+    # This is locale-independent and keeps ALIAS usable as a stable identifier.
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
-    registry_ws=players_book.worksheet("JUGADORES")
     registry_rows=records(players_book,"JUGADORES")
-    if registry_rows:
-        registry_ws.update(range_name="A2:A"+str(len(registry_rows)+1),
-                           values=[[linked_alias(r.get("ALIAS",""))] for r in registry_rows],
-                           value_input_option="USER_ENTERED")
-    # gspread RAW writes formulas as text; enable formula evaluation only for alias cells.
-    for tab, col in (("RENDIMIENTO",2),("PARTICIPACIONES",2)):
+    requests=[]
+    for tab, column, values in (
+        ("JUGADORES",0,[str(r.get("ALIAS","")) for r in registry_rows]),
+        ("RENDIMIENTO",1,[str(r[1]) if r[0]=="JUGADORES" else "" for r in ranking]),
+        ("PARTICIPACIONES",1,[str(r[1]) for r in history])
+    ):
         ws=players_book.worksheet(tab)
-        values=[r[col-1] for r in (ranking if tab=="RENDIMIENTO" else history)]
-        from gspread.utils import rowcol_to_a1
-        if values:
-            ws.update(range_name="B2:B"+str(len(values)+1),values=[[v] for v in values],value_input_option="USER_ENTERED")
+        for index,alias in enumerate(values,1):
+            gid=alias_tabs.get(alias)
+            if gid is None:
+                continue
+            link="https://docs.google.com/spreadsheets/d/"+players_book.id+"/edit#gid="+str(gid)
+            requests.append({"updateCells":{
+                "start":{"sheetId":ws.id,"rowIndex":index,"columnIndex":column},
+                "rows":[{"values":[{"userEnteredValue":{"stringValue":alias},
+                                    "userEnteredFormat":{"textFormat":{"link":{"uri":link}}}}]}],
+                "fields":"userEnteredValue,userEnteredFormat.textFormat.link"
+            }})
+    for start in range(0,len(requests),100):
+        players_book.batch_update({"requests":requests[start:start+100]})
 
     # Render player analytics from Supabase-derived records; no historical RAW source.
     # J_* reports in the general workbook. Append current match history below.
