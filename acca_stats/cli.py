@@ -124,21 +124,22 @@ def present(book, players_book):
         champion_ws.batch_clear([f"{first_extra}1:{last_extra}"])
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
-    # Rebuild individual player reports from canonical data, not stale J_* legacy layouts.
+    # Restore complete historical player analytics from the untouched original
+    # J_* reports in the general workbook. Append current match history below.
+    # Never replace the multi-section source with a reduced match-only table.
     player_header = ["MATCH_ID","FECHA_UTC","MODO","RESULTADO","CAMPEON","ROL",
                      "KILLS","DEATHS","ASSISTS","KDA","CS_MIN","ORO","DANO","VISION","ITEMS"]
-    by_match = {str(m.get("MATCH_ID")):m for m in matches}
-    player_aliases = {str(p.get("ALIAS","")) for p in participants
-                      if p.get("ES_ACCA") == "SI" and p.get("ALIAS")}
-    player_aliases |= {str(r.get("ALIAS","")) for r in records(players_book,"JUGADORES")
-                       if r.get("ALIAS")}
-    for alias in sorted(player_aliases):
-        if not alias:
+    by_match = {str(m.get("MATCH_ID")): m for m in matches}
+    for source in book.worksheets():
+        if not source.title.startswith("J_"):
             continue
-        name = "J_" + alias[:90]
+        alias = source.title[2:]
+        historical = source.get_all_values()
+        if not historical:
+            continue
         player_rows = []
         for p in participants:
-            if p.get("ALIAS") != alias or p.get("ES_ACCA") != "SI" or p.get("EQUIPO_ACCA") != "SI":
+            if str(p.get("ALIAS","")) != alias or p.get("ES_ACCA") != "SI":
                 continue
             match = by_match.get(str(p.get("MATCH_ID")))
             if not match:
@@ -149,20 +150,48 @@ def present(book, players_book):
                 p.get("KDA",""),p.get("CS_MIN",""),p.get("ORO",0),
                 p.get("DANO_CAMPEONES",p.get("DANO",0)),
                 p.get("VISION",0),p.get("ITEMS","")])
-        ws = ensure_tab(players_book,name,player_header)
-        # Legacy reports had merged sections and dark bars; clear those formats.
-        if ws._properties.get("merges"):
-            players_book.batch_update({"requests":[{"unmergeCells":{"range":{
-                "sheetId":ws.id,"startRowIndex":0,"endRowIndex":ws.row_count,
-                "startColumnIndex":0,"endColumnIndex":ws.col_count}}}]})
-        players_book.batch_update({"requests":[{"repeatCell":{"range":{"sheetId":ws.id},
-            "cell":{"userEnteredFormat":{}},"fields":"userEnteredFormat"}}]})
-        write_view(players_book,name,player_header,player_rows)
-        # Remove all leftover legacy values beyond the new report's columns.
-        if ws.col_count > len(player_header):
-            from gspread.utils import rowcol_to_a1
-            col = rowcol_to_a1(1,len(player_header)+1).rstrip("1")
-            ws.batch_clear([f"{col}1:{rowcol_to_a1(ws.row_count,ws.col_count)}"])
+        # Keep every original analytical section; add new history after it.
+        rows = [list(row) for row in historical]
+        rows.extend([[], ["HISTORIAL DE PARTIDAS REGISTRADAS"], player_header])
+        rows.extend(player_rows)
+        ws = ensure_tab(players_book,source.title,[])
+        width = max(map(len,rows))
+        if ws.col_count < width:
+            ws.add_cols(width-ws.col_count)
+        if ws.row_count < len(rows):
+            ws.add_rows(len(rows)-ws.row_count)
+        from gspread.utils import rowcol_to_a1
+        # Unmerge old report cells and remove stale section bars before writing.
+        players_book.batch_update({"requests":[
+            {"unmergeCells":{"range":{"sheetId":ws.id}}},
+            {"repeatCell":{"range":{"sheetId":ws.id},
+                "cell":{"userEnteredFormat":{}},"fields":"userEnteredFormat"}}
+        ]})
+        ws.update(range_name="A1",values=rows,value_input_option="RAW")
+        old_length = len(ws.get_all_values())
+        if old_length > len(rows):
+            ws.batch_clear([f"A{len(rows)+1}:{rowcol_to_a1(old_length,ws.col_count)}"])
+        # Highlight actual section labels and each table header, not empty bars.
+        section_rows = [i for i,row in enumerate(rows) if len(row)==1 and row[0] and i>2]
+        header_rows = [i for i,row in enumerate(rows) if len(row)>1 and
+                       (row[0] in ("PARTIDAS","CAMPEON","ROL","OBJETO","MATCH_ID"))]
+        formatting = []
+        for i in section_rows:
+            formatting.append({"repeatCell":{"range":{"sheetId":ws.id,
+                "startRowIndex":i,"endRowIndex":i+1,"startColumnIndex":0,
+                "endColumnIndex":width},
+                "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.86,"green":0.91,"blue":0.97},
+                    "textFormat":{"bold":True,"foregroundColor":{"red":0.10,"green":0.17,"blue":0.27}}}},
+                "fields":"userEnteredFormat"}})
+        for i in header_rows:
+            formatting.append({"repeatCell":{"range":{"sheetId":ws.id,
+                "startRowIndex":i,"endRowIndex":i+1,"startColumnIndex":0,
+                "endColumnIndex":width},
+                "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.91,"green":0.94,"blue":0.98},
+                    "textFormat":{"bold":True}}},
+                "fields":"userEnteredFormat"}})
+        if formatting:
+            players_book.batch_update({"requests":formatting})
     guide = [
         ["CAMPO","SIGNIFICADO"],
         ["MATCH_ID","Identificador único de partida de Riot; LA2_ seguido del número"],
