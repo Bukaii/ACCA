@@ -59,6 +59,12 @@ def ensure(book):
             ws = book.worksheet(name)
         except gspread.WorksheetNotFound:
             ws = book.add_worksheet(title=name, rows=100, cols=max(20,len(header)))
+            ws.freeze(rows=1)
+            ws.format("1:1", {"backgroundColor":{"red":0.10,"green":0.16,"blue":0.27},
+                                "textFormat":{"foregroundColor":{"red":1,"green":1,"blue":1},"bold":True},
+                                "horizontalAlignment":"CENTER"})
+            if name.startswith("RAW_"):
+                ws.set_basic_filter()
         existing = ws.row_values(1)
         if not existing:
             ws.update(range_name="A1", values=[header])
