@@ -63,11 +63,11 @@ def ensure(book):
             ws.format("1:1", {"backgroundColor":{"red":0.10,"green":0.16,"blue":0.27},
                                 "textFormat":{"foregroundColor":{"red":1,"green":1,"blue":1},"bold":True},
                                 "horizontalAlignment":"CENTER"})
-            if name.startswith("RAW_"):
-                ws.set_basic_filter()
         existing = ws.row_values(1)
         if not existing:
             ws.update(range_name="A1", values=[header])
+            if name.startswith("RAW_"):
+                ws.set_basic_filter()
             continue
         missing = [col for col in header if col not in existing]
         if missing:
