@@ -77,3 +77,12 @@ def store_pair(match_id, match, timeline):
                              "Prefer":"resolution=merge-duplicates"},json=row,timeout=30)
     response.raise_for_status()
     return row
+
+def list_match_ids():
+    """Read the private PostgreSQL index, not a Google Sheets RAW tab."""
+    if not configured():
+        raise RuntimeError("Faltan credenciales de Supabase")
+    url = os.environ["SUPABASE_URL"].rstrip("/") + "/rest/v1/acca_match_archives"
+    response = requests.get(url, headers=_headers(), params={"select":"match_id","order":"stored_at.asc","limit":"10000"}, timeout=40)
+    response.raise_for_status()
+    return [row["match_id"] for row in response.json()]
