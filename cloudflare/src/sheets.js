@@ -4,14 +4,14 @@ const GENERAL="1_QVHhGoob2hDig1JDTmJttAQIIL9CKS4ea69_ozWNQc";
 const PLAYERS="1y-1FHI4jFyAm9c1m0pz9nnfuAZ7xch0aKDvGgbLP4_A";
 const ROOT="https://sheets.googleapis.com/v4/spreadsheets/";
 const enc=s=>encodeURIComponent(s);
-const b64url=bytes=>btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/=/g,"").replace(/\\+/g,"-").replace(/\\//g,"_");
+const b64url=bytes=>btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/=/g,"").replace(/\+/g,"-").replace(/\//g,"_");
 async function token(env) {
   if(!env.GOOGLE_CREDENTIALS_JSON) throw Error("Google service account not configured");
   const key=JSON.parse(env.GOOGLE_CREDENTIALS_JSON);
   const now=Math.floor(Date.now()/1000);
   const h=b64url(new TextEncoder().encode(JSON.stringify({alg:"RS256",typ:"JWT"})));
   const p=b64url(new TextEncoder().encode(JSON.stringify({iss:key.client_email,scope:"https://www.googleapis.com/auth/spreadsheets",aud:"https://oauth2.googleapis.com/token",iat:now,exp:now+3300})));
-  const pem=key.private_key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\\s/g,"");
+  const pem=key.private_key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g,"");
   const raw=Uint8Array.from(atob(pem),c=>c.charCodeAt(0));
   const cryptoKey=await crypto.subtle.importKey("pkcs8",raw,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["sign"]);
   const signature=await crypto.subtle.sign("RSASSA-PKCS1-v1_5",cryptoKey,new TextEncoder().encode(h+"."+p));
@@ -139,7 +139,7 @@ async function updatePage(access,alias,accounts,archives) {
 }
 function titleRange(title,range){return "'"+title.replace(/'/g,"''")+"'!"+range;}
 async function archived(env) {
-  const list=await supabase(env,"/rest/v1/acca_match_archives?select=match_id,match_path&order=created_at.asc");
+  const list=await supabase(env,"/rest/v1/acca_match_archives?select=match_id,match_path&order=stored_at.asc");
   const archives=[];
   for(const entry of list) {
     const res=await fetch(env.SUPABASE_URL+"/storage/v1/object/acca-riot-json/"+entry.match_path,{
