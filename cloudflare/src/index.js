@@ -82,7 +82,7 @@ async function archive(env,id,match,timeline) {
 }
 async function registerPlayer(env,aliasInput,riotInput) {
   const alias=String(aliasInput||"").trim(), riotId=String(riotInput||"").trim();
-  if (!alias || alias.length>48 || !/^[\\p{L}\\p{N} _.-]+$/u.test(alias)) throw new Error("Alias inválido (máximo 48 caracteres).");
+  if (!alias || alias.length>48 || !/^[\p{L}\p{N} _.-]+$/u.test(alias)) throw new Error("Alias inválido (máximo 48 caracteres).");
   const separator=riotId.lastIndexOf("#");
   if (separator<1 || separator===riotId.length-1 || riotId.length>100) throw new Error("Riot ID inválido. Usá Nombre#TAG.");
   const gameName=riotId.slice(0,separator),tag=riotId.slice(separator+1);
