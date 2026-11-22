@@ -92,30 +92,17 @@ def present(book, players_book, matches=None, participants=None, details=None):
         champion_ws.batch_clear([f"{first_extra}1:{last_extra}"])
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
-    # A dedicated worksheet per alias; links always point to the actual sheet gid.
-    from collections import defaultdict
-    from urllib.parse import quote
-    by_alias=defaultdict(list)
-    for row in history:
-        if len(row)>1 and row[1]:
-            by_alias[str(row[1])].append(row)
-    used_names=set()
+    # Link to the original, multi-section J_* reports in the general workbook.
+    # Never recreate these pages as flat tables in the players workbook.
+    registry_rows=records(players_book,"JUGADORES")
     alias_tabs={}
-    for alias in sorted(set(by_alias) | {str(r.get("ALIAS","")).strip() for r in records(players_book,"JUGADORES") if str(r.get("ALIAS","")).strip()}):
-        base="J_"+alias[:85].replace("/", "_").replace("[", "(").replace("]", ")").replace(":", "-").replace("?", "")
-        name=base
-        n=2
-        while name in used_names:
-            name=base[:90-len(str(n))]+"_"+str(n)
-            n+=1
-        used_names.add(name)
-        ws=write_view(players_book,name,PLAYERS["PARTICIPACIONES"],by_alias[alias])
-        alias_tabs[alias]=ws.id
+    for ws in book.worksheets():
+        if ws.title.startswith("J_"):
+            alias_tabs[ws.title[2:]]=ws.id
     # Write plain aliases and apply native rich-text links instead of formulas.
     # This is locale-independent and keeps ALIAS usable as a stable identifier.
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
-    registry_rows=records(players_book,"JUGADORES")
     requests=[]
     for tab, column, values in (
         ("JUGADORES",0,[str(r.get("ALIAS","")) for r in registry_rows]),
@@ -127,7 +114,7 @@ def present(book, players_book, matches=None, participants=None, details=None):
             gid=alias_tabs.get(alias)
             if gid is None:
                 continue
-            link="https://docs.google.com/spreadsheets/d/"+players_book.id+"/edit#gid="+str(gid)
+            link="https://docs.google.com/spreadsheets/d/"+book.id+"/edit#gid="+str(gid)
             requests.append({"updateCells":{
                 "start":{"sheetId":ws.id,"rowIndex":index,"columnIndex":column},
                 "rows":[{"values":[{"userEnteredValue":{"stringValue":alias},
