@@ -1,4 +1,4 @@
-import {publishPlayers,publishMatch} from "./sheets.js";
+import {publishPlayers,publishMatch,validateAccaRoster} from "./sheets.js";
 // ACCA Discord ingress + asynchronous Riot archiver.
 // Secrets: DISCORD_PUBLIC_KEY, RIOT_API_KEY, SUPABASE_SECRET_KEY.
 // Variables: SUPABASE_URL, DISCORD_ALLOWED_ROLE_IDS (comma-separated).
@@ -28,7 +28,7 @@ async function supa(env,path,options={}) {
   return response;
 }
 async function getJob(env,id) {
-  const response=await supa(env,"/rest/v1/acca_match_jobs?select=match_id,status&match_id=eq."+encodeURIComponent(id));
+  const response=await supa(env,"/rest/v1/acca_match_jobs?select=match_id,status,error_message,archived_at&match_id=eq."+encodeURIComponent(id));
   return (await response.json())[0]||null;
 }
 async function setJob(env,id,values) {
@@ -80,6 +80,22 @@ async function archive(env,id,match,timeline) {
     method:"POST",headers:{"Content-Type":"application/json",Prefer:"resolution=merge-duplicates"},
     body:JSON.stringify({match_id:id,match_path:mp,timeline_path:tp,match_sha256:await sha256(m.raw),timeline_sha256:await sha256(t.raw)})
   });
+}
+async function archivedMatch(env,id) {
+  const r=await supa(env,"/rest/v1/acca_match_archives?select=match_path&match_id=eq."+encodeURIComponent(id));
+  const entry=(await r.json())[0];
+  if(!entry) return null;
+  const res=await supa(env,"/storage/v1/object/"+BUCKET+"/"+entry.match_path);
+  return JSON.parse(await new Response(res.body.pipeThrough(new DecompressionStream("gzip"))).text());
+}
+async function rosterAccounts(env) {
+  const response=await supa(env,"/rest/v1/acca_player_accounts?select=puuid,alias_key");
+  return response.json();
+}
+async function retryPending(env) {
+  const response=await supa(env,"/rest/v1/acca_match_jobs?select=match_id&status=eq.PENDIENTE&archived_at=not.is.null&limit=100");
+  const jobs=await response.json();
+  for(const job of jobs) await env.ACCA_QUEUE.send({id:job.match_id,type:"recheck"});
 }
 async function registerPlayer(env,aliasInput,riotInput) {
   const alias=String(aliasInput||"").trim(), riotId=String(riotInput||"").trim();
@@ -192,7 +208,7 @@ async function registerCommands(env) {
   return results;
 }
 export default {
-  async scheduled(event,env,ctx) { ctx.waitUntil(registerCommands(env)); },
+  async scheduled(event,env,ctx) { ctx.waitUntil(retryPending(env)); },
   async fetch(request,env) {
     const url=new URL(request.url);
     if (request.method==="POST" && url.pathname==="/__register-commands") {
@@ -259,9 +275,13 @@ export default {
     if (!id) return json({type:4,data:{content:"ID inválido. Ejemplo: LA2_1638914973",flags:64}});
     try {
       const current=await getJob(env,id);
-      if (current?.status==="ARCHIVADA") return json({type:4,data:{content:"La partida "+id+" ya está archivada. Estado: "+current.status,flags:64}});
-      if (current?.status==="PROCESANDO"||current?.status==="PENDIENTE")
+      if (current?.status==="ARCHIVADA") return json({type:4,data:{content:"La partida "+id+" ya está publicada. Estado: "+current.status,flags:64}});
+      if (current?.status==="PROCESANDO")
         return json({type:4,data:{content:"La partida "+id+" ya está en proceso.",flags:64}});
+      if (current?.status==="PENDIENTE" && current.archived_at) {
+        await env.ACCA_QUEUE.send({id,appId:interaction.application_id,token:interaction.token,type:"recheck"});
+        return json({type:4,data:{content:"Volviendo a verificar los 5 jugadores ACCA de "+id+". "+(current.error_message||""),flags:64}});
+      }
       await setJob(env,id,{status:"PENDIENTE",requested_by:interaction.member?.user?.id||null,discord_application_id:interaction.application_id,error_message:null});
       try {
         await env.ACCA_QUEUE.send({id,appId:interaction.application_id,token:interaction.token});
@@ -289,12 +309,21 @@ export default {
       const {id,appId,token}=msg.body;
       try {
         const previous=await getJob(env,id);
-        if(previous?.status!=="ARCHIVADA") {
+        let match=await archivedMatch(env,id);
+        if(!match) {
           await setJob(env,id,{status:"PROCESANDO",error_message:null});
           const route=ROUTES[id.split("_")[0]];
-          const [match,timeline]=await Promise.all([riot(env,route,id,"match"),riot(env,route,id,"timeline")]);
-          await archive(env,id,match,timeline);
-          await setJob(env,id,{status:"ARCHIVADA",archived_at:new Date().toISOString(),error_message:null});
+          const [downloaded,timeline]=await Promise.all([riot(env,route,id,"match"),riot(env,route,id,"timeline")]);
+          await archive(env,id,downloaded,timeline);
+          match=downloaded;
+          await setJob(env,id,{status:"PENDIENTE",archived_at:new Date().toISOString(),error_message:null});
+        }
+        const validation=validateAccaRoster(match,await rosterAccounts(env));
+        if(!validation.valid) {
+          await setJob(env,id,{status:"PENDIENTE",error_message:validation.reason});
+          await followup(env,appId,token,"Partida "+id+" pendiente: "+validation.reason+" Se verificará automáticamente cada 5 minutos. También podés usar /partida nuevamente.");
+          msg.ack();
+          continue;
         }
         await publishMatch(env);
         await setJob(env,id,{status:"ARCHIVADA",error_message:null});
@@ -307,7 +336,7 @@ export default {
           await followup(env,appId,token,"No se pudo descargar "+id+": "+String(e));
           msg.ack();
         } else if(msg.attempts>=5) {
-          await setJob(env,id,{status:"ARCHIVADA",error_message:"Publicación pendiente: "+String(e).slice(0,120)});
+          await setJob(env,id,{status:"PENDIENTE",error_message:"Publicación pendiente: "+String(e).slice(0,120)});
           await followup(env,appId,token,"Partida "+id+" archivada, pero falló la publicación. La sincronización periódica volverá a intentarlo.");
           msg.ack();
         } else {
