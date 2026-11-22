@@ -76,3 +76,21 @@ jobs:
         run: |
           export CLOUDFLARE_ACCOUNT_ID="$(printf %s "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
           npx --yes wrangler@4 deploy
+
+      - name: Register Discord commands and verify API response
+        working-directory: cloudflare
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_ACCOUNT_ID="$(printf %s "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
+          REGISTRATION_KEY="$(openssl rand -hex 32)"
+          echo "::add-mask::$REGISTRATION_KEY"
+          printf %s "$REGISTRATION_KEY" | npx --yes wrangler@4 secret put ACCA_REGISTRATION_KEY
+          STATUS=$(curl -sS --retry 3 --retry-delay 2 -o /tmp/acca-discord-register.json -w '%{http_code}' \
+            -X POST 'https://acca-discord-bot.lyanosongbo8.workers.dev/__register-commands' \
+            -H "X-ACCA-Registration-Key: $REGISTRATION_KEY")
+          cat /tmp/acca-discord-register.json
+          if [[ "$STATUS" != "200" ]] || ! jq -e '.ok == true and (.registered | index("jugadores"))' /tmp/acca-discord-register.json >/dev/null; then
+            echo "::error::Discord slash-command registration failed (HTTP $STATUS)"
+            exit 1
+          fi
+          echo "Discord slash commands registered and verified"
