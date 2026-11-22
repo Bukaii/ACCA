@@ -174,7 +174,7 @@ async function updatePage(access,alias,accounts,archives) {
   requests.push(
     {updateCells:{range:{sheetId:ws.properties.sheetId,startRowIndex:0},fields:"userEnteredValue"}},
     {updateSheetProperties:{properties:{sheetId:ws.properties.sheetId,gridProperties:{hideGridlines:true,frozenRowCount:0}},fields:"gridProperties.hideGridlines,gridProperties.frozenRowCount"}},
-    {repeatCell:{range:{sheetId:ws.properties.sheetId},cell:{userEnteredFormat:{backgroundColor:white,verticalAlignment:"MIDDLE",wrapStrategy:"WRAP",textFormat:{fontSize:10,foregroundColor:ink}}},fields:"userEnteredFormat"}},
+    {repeatCell:{range:{sheetId:ws.properties.sheetId},cell:{userEnteredFormat:{backgroundColor:white,horizontalAlignment:"LEFT",verticalAlignment:"MIDDLE",wrapStrategy:"WRAP",textFormat:{fontSize:10,foregroundColor:ink}}},fields:"userEnteredFormat"}},
     {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:0,endIndex:1},properties:{pixelSize:350},fields:"pixelSize"}},
     {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:1,endIndex:2},properties:{pixelSize:260},fields:"pixelSize"}},
     {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:2,endIndex:width},properties:{pixelSize:145},fields:"pixelSize"}}
@@ -183,7 +183,7 @@ async function updatePage(access,alias,accounts,archives) {
   const headers=new Set(["PARTIDAS","CAMPEON","ROL","OBJETO","MATCH_ID"]);
   function paint(i,color,fontColor,fontSize,height,bold=true) {
     requests.push({repeatCell:{range:{sheetId:ws.properties.sheetId,startRowIndex:i,endRowIndex:i+1,startColumnIndex:0,endColumnIndex:width},
-      cell:{userEnteredFormat:{backgroundColor:color,verticalAlignment:"MIDDLE",wrapStrategy:"WRAP",
+      cell:{userEnteredFormat:{backgroundColor:color,horizontalAlignment:"LEFT",verticalAlignment:"MIDDLE",wrapStrategy:"WRAP",
         textFormat:{bold,fontSize,foregroundColor:fontColor}}},fields:"userEnteredFormat"}});
     requests.push({updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"ROWS",startIndex:i,endIndex:i+1},properties:{pixelSize:height},fields:"pixelSize"}});
   }
