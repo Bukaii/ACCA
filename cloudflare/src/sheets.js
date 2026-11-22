@@ -74,6 +74,21 @@ async function roster(env) {
   ]);
   return {players,accounts};
 }
+// Official ACCA match: five distinct registered aliases on one Riot team.
+export function validateAccaRoster(match,accounts) {
+  const byPuuid=new Map(accounts.map(a=>[a.puuid,a.alias_key]));
+  const teams=new Map([[100,new Set()],[200,new Set()]]);
+  for(const p of match.info?.participants||[]) {
+    const alias=byPuuid.get(p.puuid);
+    if(alias) teams.get(p.teamId)?.add(alias);
+  }
+  const counts=[...teams].map(([team,aliases])=>({team,count:aliases.size}));
+  const complete=counts.filter(x=>x.count===5);
+  if(complete.length===1) return {valid:true,teamId:complete[0].team,count:5};
+  if(complete.length>1) return {valid:false,count:5,reason:"Ambos equipos tienen 5 jugadores ACCA; no se puede determinar el equipo oficial."};
+  const max=Math.max(...counts.map(x=>x.count));
+  return {valid:false,count:max,reason:"Faltan "+(5-max)+" jugadores ACCA registrados en el mismo equipo ("+max+"/5). Registralos con /jugador."};
+}
 function participantsFor(alias,accounts,archives) {
   const puuids=new Set(accounts.filter(a=>a.alias_key===alias.toLocaleLowerCase("es")).map(a=>a.puuid));
   return archives.flatMap(({id,match})=>(match.info?.participants||[]).filter(p=>puuids.has(p.puuid)).map(p=>({...p,matchId:id,match})));
@@ -266,7 +281,7 @@ export async function publishPlayers(env) {
   const access=await token(env),{players,accounts}=await roster(env);
   const rows=players.flatMap(p=>{const ac=accounts.filter(a=>a.alias_key===p.alias_key);return ac.length?ac.map(a=>[p.alias,a.riot_id,"","SI",a.puuid,"OK",""]):[[p.alias,"","","SI","","OK",""]];});
   await put(access,PLAYERS,[["JUGADORES!A1", [["ALIAS","RIOT_ID","REGION","ACTIVO","PUUID","ESTADO","MENSAJE"],...rows]]]);
-  const archiveData=await archived(env);
+  const archiveData=(await archived(env)).filter(({match})=>validateAccaRoster(match,accounts).valid);
   let index=1;
   for(const p of players) {
     const gid=await updatePage(access,p.alias,accounts,archiveData);
@@ -288,12 +303,14 @@ async function championNamesFor(version) {
 }
 export async function publishMatch(env) {
   await publishPlayers(env);
-  const access=await token(env),data=await archived(env),{accounts}=await roster(env);
+  const access=await token(env),{accounts}=await roster(env);
+  const data=(await archived(env)).filter(({match})=>validateAccaRoster(match,accounts).valid);
   const puuids=new Set(accounts.map(a=>a.puuid));
   const matchRows=await Promise.all(data.map(async ({id,match})=>{
     const info=match.info||{},own=info.participants||[];
-    const registered=own.filter(p=>puuids.has(p.puuid));
-    const side=registered[0]?.teamId||100;
+    const validation=validateAccaRoster(match,accounts);
+    const registered=own.filter(p=>puuids.has(p.puuid)&&p.teamId===validation.teamId);
+    const side=validation.teamId;
     const acca=own.filter(p=>p.teamId===side),rival=own.filter(p=>p.teamId!==side);
     const championNames=await championNamesFor(info.gameVersion);
     const bans=team=>(info.teams||[]).find(t=>t.teamId===team)?.bans?.map(b=>b.championId<=0?"Sin ban":(championNames[String(b.championId)]||"ID "+b.championId)).join(" + ")||"Sin baneos";
