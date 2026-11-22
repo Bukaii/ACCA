@@ -71,11 +71,24 @@ jobs:
             echo "Queue acca-partidas created"
           fi
 
-      - name: Deploy Worker and Queue bindings
+      - name: Validate Worker JavaScript\n        run: |\n          node --check cloudflare/src/index.js\n          node --check cloudflare/src/sheets.js\n\n      - name: Deploy Worker and Queue bindings
         working-directory: cloudflare
         run: |
           export CLOUDFLARE_ACCOUNT_ID="$(printf %s "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
           npx --yes wrangler@4 deploy
+
+      - name: Configure Google Sheets service account for immediate publishing
+        working-directory: cloudflare
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GOOGLE_CREDENTIALS_JSON" ]]; then
+            echo "::error::GOOGLE_CREDENTIALS_JSON is required for immediate Google Sheets publication"
+            exit 1
+          fi
+          export CLOUDFLARE_ACCOUNT_ID="$(printf %s "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
+          printf %s "$GOOGLE_CREDENTIALS_JSON" | npx --yes wrangler@4 secret put GOOGLE_CREDENTIALS_JSON
 
       - name: Register Discord commands and verify API response
         working-directory: cloudflare
