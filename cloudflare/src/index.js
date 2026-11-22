@@ -1,3 +1,4 @@
+import {publishPlayers,publishMatch} from "./sheets.js";
 // ACCA Discord ingress + asynchronous Riot archiver.
 // Secrets: DISCORD_PUBLIC_KEY, RIOT_API_KEY, SUPABASE_SECRET_KEY.
 // Variables: SUPABASE_URL, DISCORD_ALLOWED_ROLE_IDS (comma-separated).
@@ -235,7 +236,8 @@ export default {
       const riotId=interaction.data.options?.find(x=>x.name==="riot_id")?.value;
       try {
         const result=await registerPlayer(env,alias,riotId);
-        return json({type:4,data:{content:result,flags:64}});
+        await env.ACCA_QUEUE.send({type:"players"});
+        return json({type:4,data:{content:result+" Actualizando Google Sheets.",flags:64}});
       } catch(error) {
         console.error("Error registrando jugador",String(error));
         return json({type:4,data:{content:String(error.message||error).slice(0,190),flags:64}});
@@ -245,7 +247,7 @@ export default {
     if (!id) return json({type:4,data:{content:"ID inválido. Ejemplo: LA2_1638914973",flags:64}});
     try {
       const current=await getJob(env,id);
-      if (current?.status==="ARCHIVADA") return json({type:4,data:{content:"La partida "+id+" ya está archivada.",flags:64}});
+      if (current?.status==="ARCHIVADA"||current?.status==="PUBLICADA") return json({type:4,data:{content:"La partida "+id+" ya está archivada. Estado: "+current.status,flags:64}});
       if (current?.status==="PROCESANDO"||current?.status==="PENDIENTE")
         return json({type:4,data:{content:"La partida "+id+" ya está en proceso.",flags:64}});
       await setJob(env,id,{status:"PENDIENTE",requested_by:interaction.member?.user?.id||null,discord_application_id:interaction.application_id,error_message:null});
@@ -263,28 +265,41 @@ export default {
   },
   async queue(batch,env) {
     for(const msg of batch.messages) {
+      if(msg.body.type==="players") {
+        try { await publishPlayers(env); msg.ack(); }
+        catch(e) {
+          console.error("Error publicando jugadores en Sheets",String(e));
+          if(msg.attempts>=5) msg.ack();
+          else msg.retry({delaySeconds:Math.min(120,10*msg.attempts)});
+        }
+        continue;
+      }
       const {id,appId,token}=msg.body;
       try {
-        await setJob(env,id,{status:"PROCESANDO",error_message:null});
-        const route=ROUTES[id.split("_")[0]];
-        const [match,timeline]=await Promise.all([riot(env,route,id,"match"),riot(env,route,id,"timeline")]);
-        await archive(env,id,match,timeline);
-        await setJob(env,id,{status:"ARCHIVADA",archived_at:new Date().toISOString(),error_message:null});
-        await followup(env,appId,token,"Partida "+id+" archivada en Supabase (match + timeline). Las estadísticas aún no se publicaron.");
+        const previous=await getJob(env,id);
+        if(previous?.status!=="ARCHIVADA" && previous?.status!=="PUBLICADA") {
+          await setJob(env,id,{status:"PROCESANDO",error_message:null});
+          const route=ROUTES[id.split("_")[0]];
+          const [match,timeline]=await Promise.all([riot(env,route,id,"match"),riot(env,route,id,"timeline")]);
+          await archive(env,id,match,timeline);
+          await setJob(env,id,{status:"ARCHIVADA",archived_at:new Date().toISOString(),error_message:null});
+        }
+        await publishMatch(env);
+        await setJob(env,id,{status:"PUBLICADA",error_message:null});
+        await followup(env,appId,token,"Partida "+id+" archivada y estadísticas publicadas en Google Sheets.");
         msg.ack();
       } catch(e) {
-        console.error("Error procesando partida",id,String(e));
-        if ([400,403,404].includes(e.status)) {
+        console.error("Error procesando o publicando partida",id,String(e));
+        if([400,403,404].includes(e.status)) {
           await setJob(env,id,{status:"ERROR",error_message:String(e).slice(0,160)});
           await followup(env,appId,token,"No se pudo descargar "+id+": "+String(e));
           msg.ack();
-        } else if (msg.attempts >= 5) {
-          await setJob(env,id,{status:"ERROR",error_message:"Reintentos agotados: "+String(e).slice(0,120)});
-          await followup(env,appId,token,"No se pudo archivar "+id+" tras varios intentos.");
+        } else if(msg.attempts>=5) {
+          await setJob(env,id,{status:"ARCHIVADA",error_message:"Publicación pendiente: "+String(e).slice(0,120)});
+          await followup(env,appId,token,"Partida "+id+" archivada, pero falló la publicación. La sincronización periódica volverá a intentarlo.");
           msg.ack();
         } else {
-          try { await setJob(env,id,{status:"PENDIENTE",error_message:String(e).slice(0,160)}); } catch {}
-          msg.retry({delaySeconds:Math.min(300,Math.max(15,e.retryAfter||30))});
+          msg.retry({delaySeconds:Math.min(120,Math.max(10,e.retryAfter||10*msg.attempts))});
         }
       }
     }
