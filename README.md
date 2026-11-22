@@ -19,7 +19,7 @@ Escribí `/jugador` en Discord y completá:
 
 **Ejemplo:**
 
-`/jugador alias:Bukai_ riot_id:ブカイだ#ちょっと`
+`/jugador alias:LoL riot_id:League#LAS`
 
 Si alguien juega con varias cuentas, repetí el comando usando **el mismo alias** y el Riot ID de la otra cuenta. Así sus estadísticas se agrupan en un solo perfil.
 
@@ -37,7 +37,7 @@ Al terminar una partida que corresponda registrar en ACCA, escribí `/partida` e
 
 **Ejemplo:**
 
-`/partida id:LA2_1638964338`
+`/partida id:1638964338`
 
 Para partidas del servidor LAS también podés ingresar únicamente el número del ID.
 
