@@ -318,9 +318,19 @@ export async function publishMatch(env) {
       acca.map(p=>p.championName).join(" | "),registered.length,acca.map(p=>p.championName).join(" + "),rival.map(p=>p.championName).join(" + "),bans(side),bans(side===100?200:100),info.gameDuration||0,"DISCORD"];
   }));
   const wins=matchRows.filter(r=>r[5]==="VICTORIA").length;
+  const jobs=await supabase(env,"/rest/v1/acca_match_jobs?select=match_id,status,error_message,updated_at&order=updated_at.asc");
+  const published=new Map(matchRows.map(r=>[r[0],r]));
+  const registerRows=jobs.map(j=>{
+    const row=published.get(j.match_id);
+    const ready=!!row&&j.status==="ARCHIVADA";
+    return [j.match_id,ready?"PROCESADA":j.status==="ARCHIVADA"?"PENDIENTE":j.status,
+      ready?"":j.error_message||(!row?"Esperando 5 jugadores ACCA":"Esperando publicación"),
+      row?.[4]||"",ready?j.updated_at||"":""];
+  });
+  await google(access,GENERAL,"/values:batchClear","POST",{ranges:["PARTIDAS!A2:N","RESUMEN!A2:G","REGISTRO!A2:E"]});
   await put(access,GENERAL,[
     ["PARTIDAS!A1",[["MATCH_ID","FECHA_UTC","MODO","VERSION","LADO_ACCA","RESULTADO","EQUIPO_ACCA","N_ACCA","COMPOSICION_ACCA","COMPOSICION_RIVAL","BANS_ACCA","BANS_RIVAL","DURACION_SEG","FUENTE"],...matchRows]],
     ["RESUMEN!A1",[["SECCION","CLAVE","PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%","WR_MIN_95_%"],["ACCA","TOTAL",matchRows.length,wins,matchRows.length-wins,matchRows.length?Math.round(wins/matchRows.length*10000)/100:0,0]]],
-    ["REGISTRO!A1",[["MATCH_ID","ESTADO","MENSAJE","LADO_ACCA","PROCESADA_UTC"],...matchRows.map(r=>[r[0],"PROCESADA","",r[4],new Date().toISOString()])]]
+    ["REGISTRO!A1",[["MATCH_ID","ESTADO","MENSAJE","LADO_ACCA","PROCESADA_UTC"],...registerRows]]
   ]);
 }
