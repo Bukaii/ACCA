@@ -143,20 +143,6 @@ async function listPlayers(env) {
   pages.push(page);
   return pages;
 }
-async function followup(env,appId,token,message) {")+"** — "+
-    (ids.size?[...ids].join(", "):"Sin Riot ID vinculado"));
-  const pages=[],heading="**Jugadores ACCA ("+players.length+")**";
-  let page=heading;
-  for(const line of lines) {
-    if((page+"\\n"+line).length>1900) {
-      pages.push(page);
-      page="**Jugadores ACCA (continuación)**";
-    }
-    page+="\\n"+line;
-  }
-  pages.push(page);
-  return pages;
-}
 async function followup(env,appId,token,message) {
   if (!appId||!token) return;
   const res=await fetch("https://discord.com/api/v10/webhooks/"+appId+"/"+token,{
