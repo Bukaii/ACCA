@@ -53,9 +53,10 @@ def style(book,names):
         width=min(ws.col_count, max(7,len(ws.row_values(1))))
         end=ws.row_count
         requests.extend([
+            {"repeatCell":{"range":{"sheetId":gid},"cell":{"userEnteredFormat":{"horizontalAlignment":"LEFT"}},"fields":"userEnteredFormat.horizontalAlignment"}},
             {"updateSheetProperties":{"properties":{"sheetId":gid,"gridProperties":{"frozenRowCount":1,"hideGridlines":True}},"fields":"gridProperties.frozenRowCount,gridProperties.hideGridlines"}},
             {"repeatCell":{"range":{"sheetId":gid,"startRowIndex":0,"endRowIndex":1,"startColumnIndex":0,"endColumnIndex":width},
-                "cell":{"userEnteredFormat":{"backgroundColor":NAVY,"textFormat":{"foregroundColor":WHITE,"bold":True,"fontSize":10},"verticalAlignment":"MIDDLE","wrapStrategy":"WRAP"}},
+                "cell":{"userEnteredFormat":{"backgroundColor":NAVY,"textFormat":{"foregroundColor":WHITE,"bold":True,"fontSize":10},"verticalAlignment":"MIDDLE","horizontalAlignment":"LEFT","wrapStrategy":"WRAP"}},
                 "fields":"userEnteredFormat"}},
             {"updateDimensionProperties":{"range":{"sheetId":gid,"dimension":"ROWS","startIndex":0,"endIndex":1},"properties":{"pixelSize":38},"fields":"pixelSize"}},
             {"updateDimensionProperties":{"range":{"sheetId":gid,"dimension":"COLUMNS","startIndex":0,"endIndex":width},"properties":{"pixelSize":155},"fields":"pixelSize"}},
