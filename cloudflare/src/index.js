@@ -142,8 +142,13 @@ async function registerCommands(env) {
     if(!res.ok) throw new Error("Discord HTTP "+res.status+": "+JSON.stringify(result).slice(0,220));
     return result;
   };
-  // Global registration is retained, but guild commands are available immediately.
-  await request(root+"/commands","PUT",commands);
+  // Guild commands only. Remove our former global copies to avoid duplicates.
+  const globalCommands=await request(root+"/commands","GET");
+  for (const command of globalCommands) {
+    if (commands.some(c=>c.name===command.name)) {
+      await request(root+"/commands/"+command.id,"DELETE");
+    }
+  }
   const guilds=await request("https://discord.com/api/v10/users/@me/guilds","GET");
   if (!Array.isArray(guilds)) throw new Error("Discord did not return guilds");
   const results=[];
