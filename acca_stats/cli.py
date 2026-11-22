@@ -89,31 +89,7 @@ def present(book, players_book, matches=None, participants=None, details=None):
         first_extra = rowcol_to_a1(1,len(champion_header)+1).replace("1","")
         last_extra = rowcol_to_a1(champion_ws.row_count,champion_ws.col_count)
         champion_ws.batch_clear([f"{first_extra}1:{last_extra}"])
-    # Link aliases to their dedicated J_* tabs in the SAME players workbook.
     registry_rows=records(players_book,"JUGADORES")
-    alias_tabs={}
-    for ws in players_book.worksheets():
-        if ws.title.startswith("J_"):
-            alias_tabs[ws.title[2:]]=ws.id
-    # Write plain aliases and apply native rich-text links instead of formulas.
-    # This is locale-independent and keeps ALIAS usable as a stable identifier.
-    requests=[]
-    for tab, column, values in (
-        ("JUGADORES",0,[str(r.get("ALIAS","")) for r in registry_rows]),
-    ):
-        ws=players_book.worksheet(tab)
-        for index,alias in enumerate(values,1):
-            gid=alias_tabs.get(alias)
-            if gid is None:
-                continue
-            link="https://docs.google.com/spreadsheets/d/"+players_book.id+"/edit#gid="+str(gid)
-            requests.append({"updateCells":{
-                "start":{"sheetId":ws.id,"rowIndex":index,"columnIndex":column},
-                "rows":[{"values":[{"userEnteredValue":{"stringValue":alias},
-                                    "userEnteredFormat":{"textFormat":{"link":{"uri":link},"foregroundColor":{"red":0.10,"green":0.33,"blue":0.80},"underline":True}}}}]}],
-                "fields":"userEnteredValue,userEnteredFormat.textFormat.link,userEnteredFormat.textFormat.foregroundColor,userEnteredFormat.textFormat.underline"
-            }})
-
     # Create a dedicated page for every registered alias, even with no matches.
     # Never recreate obsolete RENDIMIENTO or PARTICIPACIONES tabs.
     for alias in sorted({str(r.get("ALIAS","")).strip() for r in registry_rows if r.get("ALIAS")}):
