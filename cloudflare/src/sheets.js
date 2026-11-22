@@ -129,7 +129,6 @@ async function updatePage(access,alias,accounts,archives) {
   // A duo is the player plus one other registered ACCA alias on the same team.
   // Five-player teams require five distinct registered ACCA aliases on the same side.
   const aliasByPuuid=new Map(accounts.map(a=>[a.puuid,a.alias_key]));
-  const displayByKey=new Map(accounts.map(a=>[a.alias_key,a.alias_key]));
   const duos=new Map(),teamsOfFive=new Map();
   const counted=new Set();
   for(const {id,match} of archives) {
@@ -196,11 +195,11 @@ async function updatePage(access,alias,accounts,archives) {
     ...[...byItem].sort((a,b)=>b[1]-a[1]).slice(0,30),
     [],
     ["Mejores dúos"],
-    ["Hasta 3 compañeros de ACCA con quienes compartiste equipo, ordenados por porcentaje de victorias y partidas."],
+    ["Hasta 3 compañeros de ACCA con quienes compartiste equipo. Las estadísticas individuales son tuyas en esas partidas."],
     groupHeader,...(duos.size?groupRows(duos):[["Sin partidas compartidas con otros jugadores ACCA"]]),
     [],
     ["Mejores equipos de 5"],
-    ["Hasta 3 equipos completos de cinco jugadores ACCA, ordenados por porcentaje de victorias y partidas."],
+    ["Hasta 3 equipos completos de cinco jugadores ACCA. Las estadísticas individuales son tuyas en esas partidas."],
     groupHeader,...(teamsOfFive.size?groupRows(teamsOfFive):[["Sin partidas con cinco jugadores ACCA registrados"]]),
     [],
     ["Historial de partidas registradas"],
@@ -220,8 +219,8 @@ async function updatePage(access,alias,accounts,archives) {
     {updateCells:{range:{sheetId:ws.properties.sheetId,startRowIndex:0},fields:"userEnteredValue"}},
     {updateSheetProperties:{properties:{sheetId:ws.properties.sheetId,gridProperties:{hideGridlines:true,frozenRowCount:0}},fields:"gridProperties.hideGridlines,gridProperties.frozenRowCount"}},
     {repeatCell:{range:{sheetId:ws.properties.sheetId},cell:{userEnteredFormat:{backgroundColor:white,horizontalAlignment:"LEFT",verticalAlignment:"MIDDLE",wrapStrategy:"WRAP",textFormat:{fontSize:10,foregroundColor:ink}}},fields:"userEnteredFormat"}},
-    {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:0,endIndex:1},properties:{pixelSize:140},fields:"pixelSize"}},
-    {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:1,endIndex:2},properties:{pixelSize:260},fields:"pixelSize"}},
+    {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:0,endIndex:1},properties:{pixelSize:260},fields:"pixelSize"}},
+    {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:1,endIndex:2},properties:{pixelSize:140},fields:"pixelSize"}},
     {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:2,endIndex:width},properties:{pixelSize:110},fields:"pixelSize"}}
   );
   const sections=new Set(["Resumen histórico","Por campeón","Por rol","Objetos finales más usados","Mejores dúos","Mejores equipos de 5","Historial de partidas registradas"]);
