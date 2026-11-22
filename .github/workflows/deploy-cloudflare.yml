@@ -118,3 +118,18 @@ jobs:
             exit 1
           fi
           echo "Discord slash commands registered and verified"
+          PUBLISH_STATUS=000
+          for attempt in {1..6}; do
+            PUBLISH_STATUS=$(curl --max-time 90 -sS -o /tmp/acca-publish.json -w '%{http_code}' \
+              -X POST 'https://acca-discord-bot.lyanosongbo8.workers.dev/__publish' \
+              -H "X-ACCA-Registration-Key: $REGISTRATION_KEY") || PUBLISH_STATUS=000
+            if [[ "$PUBLISH_STATUS" == "200" ]] && jq -e '.ok == true' /tmp/acca-publish.json >/dev/null; then break; fi
+            echo "Sheets publication attempt $attempt: HTTP $PUBLISH_STATUS"
+            sleep 5
+          done
+          if [[ "$PUBLISH_STATUS" != "200" ]] || ! jq -e '.ok == true' /tmp/acca-publish.json >/dev/null; then
+            echo "::error::Immediate Google Sheets publication failed"
+            cat /tmp/acca-publish.json
+            exit 1
+          fi
+          echo "Archived match and player reports published in Google Sheets"
