@@ -120,20 +120,30 @@ async function registerPlayer(env,aliasInput,riotInput) {
 async function listPlayers(env) {
   const [playersRes,accountsRes]=await Promise.all([
     supa(env,"/rest/v1/acca_players?select=alias_key,alias&order=alias.asc"),
-    supa(env,"/rest/v1/acca_player_accounts?select=alias_key,riot_id,riot_ids")
+    supa(env,"/rest/v1/acca_player_accounts?select=alias_key,riot_id")
   ]);
   const players=await playersRes.json(),accounts=await accountsRes.json();
   const byAlias=new Map(players.map(p=>[p.alias_key,{alias:p.alias,ids:new Set()}]));
   for(const account of accounts) {
     const entry=byAlias.get(account.alias_key);
-    if(!entry) continue;
-    // riot_ids records previous Riot ID names for the same PUUID; only the
-    // current Riot ID identifies each linked account in the roster.
-    if(account.riot_id) entry.ids.add(account.riot_id);
+    if(entry && account.riot_id) entry.ids.add(account.riot_id);
   }
-  if(!players.length) return "Todavía no hay jugadores registrados.";
+  if(!players.length) return ["Todavía no hay jugadores registrados."];
   const lines=Array.from(byAlias.values()).map(({alias,ids})=>
-    "**"+alias.replace(/[\\*_`~|>]/g,"\\async function followup(env,appId,token,message) {")+"** — "+
+    "**"+alias+"** — "+(ids.size?[...ids].join(", "):"Sin Riot ID vinculado"));
+  const pages=[],heading="**Jugadores ACCA ("+players.length+")**";
+  let page=heading;
+  for(const line of lines) {
+    if((page+"\n"+line).length>1900) {
+      pages.push(page);
+      page="**Jugadores ACCA (continuación)**";
+    }
+    page+="\n"+line;
+  }
+  pages.push(page);
+  return pages;
+}
+async function followup(env,appId,token,message) {")+"** — "+
     (ids.size?[...ids].join(", "):"Sin Riot ID vinculado"));
   const pages=[],heading="**Jugadores ACCA ("+players.length+")**";
   let page=heading;
