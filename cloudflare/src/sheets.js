@@ -81,11 +81,38 @@ function participantsFor(alias,accounts,archives) {
 function result(p) {
   return p.win?"VICTORIA":"DERROTA";
 }
+const itemCache=new Map();
+async function itemNamesFor(version) {
+  const patch=String(version||"").split(".").slice(0,2).join(".");
+  if(!patch) return {};
+  if(!itemCache.has(patch)) {
+    itemCache.set(patch,(async()=>{
+      const url="https://ddragon.leagueoflegends.com/cdn/"+patch+".1/data/es_MX/item.json";
+      const response=await fetch(url);
+      if(!response.ok) throw Error("Riot Data Dragon items HTTP "+response.status+" for "+patch);
+      const data=(await response.json()).data||{};
+      return Object.fromEntries(Object.entries(data).map(([id,item])=>[id,item.name]));
+    })());
+  }
+  return itemCache.get(patch);
+}
+function finalItemIds(p) {
+  return Array.from({length:7},(_,i)=>Number(p["item"+i])||0).filter(id=>id>0);
+}
+function itemLabel(id,names) {
+  return names[String(id)]||"Objeto "+id;
+}
 async function updatePage(access,alias,accounts,archives) {
   const ws=await ensurePlayerSheet(access,alias);
   const own=participantsFor(alias,accounts,archives);
   const wins=own.filter(p=>p.win).length;
   const byChampion=new Map(),byRole=new Map(),byItem=new Map();
+  const namesByPatch=new Map();
+  for(const {match} of archives) {
+    const version=match.info?.gameVersion||"";
+    if(!namesByPatch.has(version)) namesByPatch.set(version,await itemNamesFor(version));
+  }
+  const namesFor=p=>namesByPatch.get(p.match.info?.gameVersion||"")||{};
   for(const p of own) {
     const c=p.championName||"Desconocido",r=p.teamPosition||p.individualPosition||"UNKNOWN";
     const cs=(p.totalMinionsKilled||0)+(p.neutralMinionsKilled||0);
@@ -94,7 +121,10 @@ async function updatePage(access,alias,accounts,archives) {
     record.count++;record.wins+=p.win?1:0;record.k+=p.kills||0;record.d+=p.deaths||0;record.a+=p.assists||0;
     byChampion.set(c,record);
     const role=byRole.get(r)||{count:0,wins:0};role.count++;role.wins+=p.win?1:0;byRole.set(r,role);
-    for(let i=0;i<7;i++){const item=p["item"+i];if(item>0)byItem.set(item,(byItem.get(item)||0)+1);}
+    for(const id of finalItemIds(p)) {
+      const name=itemLabel(id,namesFor(p));
+      byItem.set(name,(byItem.get(name)||0)+1);
+    }
   }
   const sum=(field)=>own.reduce((n,p)=>n+(Number(p[field])||0),0);
   const avg=(fn)=>own.length?Math.round(100*own.reduce((n,p)=>n+fn(p),0)/own.length)/100:0;
@@ -125,7 +155,7 @@ async function updatePage(access,alias,accounts,archives) {
     [],
     ["Objetos finales más usados"],
     ["Frecuencia de objetos en las partidas registradas."],
-    ["ITEM_ID","APARICIONES"],
+    ["OBJETO","APARICIONES"],
     ...[...byItem].sort((a,b)=>b[1]-a[1]).slice(0,30),
     [],
     ["Historial de partidas registradas"],
@@ -134,7 +164,7 @@ async function updatePage(access,alias,accounts,archives) {
     ...own.map(p=>[p.matchId,new Date(p.match.info.gameCreation||0).toISOString(),p.match.info.gameMode||"",result(p),p.championName||"",p.teamPosition||p.individualPosition||"",
       p.kills||0,p.deaths||0,p.assists||0,Math.round(((p.kills||0)+(p.assists||0))/Math.max(1,p.deaths||0)*100)/100,
       Math.round(((p.totalMinionsKilled||0)+(p.neutralMinionsKilled||0))/Math.max(1,(p.match.info.gameDuration||0)/60)*100)/100,
-      p.goldEarned||0,p.totalDamageDealtToChampions||0,p.visionScore||0,Array.from({length:7},(_,i)=>p["item"+i]).filter(x=>x>0).join("|")])
+      p.goldEarned||0,p.totalDamageDealtToChampions||0,p.visionScore||0,finalItemIds(p).map(id=>itemLabel(id,namesFor(p))).join(" | ")])
   ];
   const width=18, navy={red:0.12,green:0.19,blue:0.30},blue={red:0.19,green:0.32,blue:0.49},
     pale={red:0.91,green:0.94,blue:0.98},white={red:1,green:1,blue:1},ink={red:0.12,green:0.18,blue:0.27};
@@ -150,7 +180,7 @@ async function updatePage(access,alias,accounts,archives) {
     {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:2,endIndex:width},properties:{pixelSize:145},fields:"pixelSize"}}
   );
   const sections=new Set(["Resumen histórico","Por campeón","Por rol","Objetos finales más usados","Historial de partidas registradas"]);
-  const headers=new Set(["PARTIDAS","CAMPEON","ROL","ITEM_ID","MATCH_ID"]);
+  const headers=new Set(["PARTIDAS","CAMPEON","ROL","OBJETO","MATCH_ID"]);
   function paint(i,color,fontColor,fontSize,height,bold=true) {
     requests.push({repeatCell:{range:{sheetId:ws.properties.sheetId,startRowIndex:i,endRowIndex:i+1,startColumnIndex:0,endColumnIndex:width},
       cell:{userEnteredFormat:{backgroundColor:color,verticalAlignment:"MIDDLE",wrapStrategy:"WRAP",
