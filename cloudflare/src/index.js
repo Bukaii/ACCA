@@ -117,6 +117,36 @@ async function registerPlayer(env,aliasInput,riotInput) {
   const count=(await accountsRes.json()).length;
   return (existing?"Cuenta actualizada":player?"Cuenta agregada":"Jugador creado")+": "+(player?.alias||alias)+" — "+canonical+". Cuentas vinculadas: "+count+".";
 }
+async function listPlayers(env) {
+  const [playersRes,accountsRes]=await Promise.all([
+    supa(env,"/rest/v1/acca_players?select=alias_key,alias&order=alias.asc"),
+    supa(env,"/rest/v1/acca_player_accounts?select=alias_key,riot_id,riot_ids")
+  ]);
+  const players=await playersRes.json(),accounts=await accountsRes.json();
+  const byAlias=new Map(players.map(p=>[p.alias_key,{alias:p.alias,ids:new Set()}]));
+  for(const account of accounts) {
+    const entry=byAlias.get(account.alias_key);
+    if(!entry) continue;
+    // riot_ids records previous Riot ID names for the same PUUID; only the
+    // current Riot ID identifies each linked account in the roster.
+    if(account.riot_id) entry.ids.add(account.riot_id);
+  }
+  if(!players.length) return "Todavía no hay jugadores registrados.";
+  const lines=Array.from(byAlias.values()).map(({alias,ids})=>
+    "**"+alias.replace(/[\\*_`~|>]/g,"\\async function followup(env,appId,token,message) {")+"** — "+
+    (ids.size?[...ids].join(", "):"Sin Riot ID vinculado"));
+  const pages=[],heading="**Jugadores ACCA ("+players.length+")**";
+  let page=heading;
+  for(const line of lines) {
+    if((page+"\\n"+line).length>1900) {
+      pages.push(page);
+      page="**Jugadores ACCA (continuación)**";
+    }
+    page+="\\n"+line;
+  }
+  pages.push(page);
+  return pages;
+}
 async function followup(env,appId,token,message) {
   if (!appId||!token) return;
   const res=await fetch("https://discord.com/api/v10/webhooks/"+appId+"/"+token,{
@@ -129,10 +159,11 @@ async function registerCommands(env) {
   if (!env.DISCORD_BOT_TOKEN||!env.DISCORD_APPLICATION_ID) throw new Error("Discord Bot Token/Application ID missing");
   const commands=[
     {name:"partida",description:"Archivar una partida oficial de ACCA",options:[{name:"id",description:"ID de Riot (ej. LA2_1638964338)",type:3,required:true}]},
-    {name:"jugadores",description:"Vincular una cuenta de Riot a un alias ACCA",options:[
+    {name:"jugador",description:"Vincular una cuenta de Riot a un alias ACCA",options:[
       {name:"alias",description:"Alias estable del jugador",type:3,required:true},
       {name:"riot_id",description:"Nombre#TAG de Riot",type:3,required:true}
-    ]}
+    ]},
+    {name:"lista",description:"Ver los jugadores ACCA y sus Riot IDs"}
   ];
   const auth={"Authorization":"Bot "+env.DISCORD_BOT_TOKEN,"Content-Type":"application/json"};
   const root="https://discord.com/api/v10/applications/"+env.DISCORD_APPLICATION_ID;
@@ -145,7 +176,7 @@ async function registerCommands(env) {
   // Guild commands only. Remove our former global copies to avoid duplicates.
   const globalCommands=await request(root+"/commands","GET");
   for (const command of globalCommands) {
-    if (commands.some(c=>c.name===command.name)) {
+    if (commands.some(c=>c.name===command.name)||command.name==="jugadores") {
       await request(root+"/commands/"+command.id,"DELETE");
     }
   }
@@ -173,7 +204,7 @@ export default {
         return new Response("Unauthorized",{status:401});
       try {
         const guilds=await registerCommands(env);
-        return json({ok:true,registered:["partida","jugadores"],guilds});
+        return json({ok:true,registered:["partida","jugador","lista"],guilds});
       } catch (error) {
         console.error("Discord command registration failed",String(error));
         return new Response(JSON.stringify({ok:false,error:String(error).slice(0,300)}),{status:502,headers:{"Content-Type":"application/json"}});
@@ -185,13 +216,24 @@ export default {
     let interaction;
     try { interaction=JSON.parse(body); } catch { return new Response("Invalid JSON",{status:400}); }
     if (interaction.type===1) return json({type:1});
-    if (interaction.type!==2||!["partida","jugador","jugadores"].includes(interaction.data?.name)) return json({type:4,data:{content:"Comando no reconocido.",flags:64}});
+    if (interaction.type!==2||!["partida","jugador","lista"].includes(interaction.data?.name)) return json({type:4,data:{content:"Comando no reconocido.",flags:64}});
     const allowed=(env.DISCORD_ALLOWED_ROLE_IDS||"").split(",").map(x=>x.trim()).filter(Boolean);
     const roles=interaction.member?.roles||[];
     const administrator=(BigInt(interaction.member?.permissions||"0")&8n)!==0n;
     if (!interaction.guild_id||!(administrator||allowed.some(role=>roles.includes(role))))
       return json({type:4,data:{content:"No tenés permiso para registrar partidas.",flags:64}});
-    if (interaction.data.name==="jugador"||interaction.data.name==="jugadores") {
+    if (interaction.data.name==="lista") {
+      try {
+        const pages=await listPlayers(env);
+        const content=Array.isArray(pages)?pages.join("\\n"):pages;
+        if(content.length<=2000) return json({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
+        return json({type:4,data:{content:pages[0],flags:64,allowed_mentions:{parse:[]}}});
+      } catch(error) {
+        console.error("Error listando jugadores",String(error));
+        return json({type:4,data:{content:"No se pudo consultar la lista de jugadores.",flags:64}});
+      }
+    }
+    if (interaction.data.name==="jugador") {
       const alias=interaction.data.options?.find(x=>x.name==="alias")?.value;
       const riotId=interaction.data.options?.find(x=>x.name==="riot_id")?.value;
       try {
