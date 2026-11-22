@@ -472,29 +472,81 @@ def sync(book, players_book, ids=(), force=False, refresh_ids=False):
                     row["ESTADO"] = "PENDIENTE"
     # Discord/Cloudflare is the only ingestion path. Sheets never downloads
     # from Riot and never writes original match/timeline archives.
+    import requests
+    base = os.environ["SUPABASE_URL"].rstrip("/") + "/rest/v1/"
+    auth = {"apikey": os.environ["SUPABASE_SECRET_KEY"],
+            "Authorization": "Bearer " + os.environ["SUPABASE_SECRET_KEY"]}
+    accounts_response = requests.get(base+"acca_player_accounts",
+                                     params={"select":"puuid,alias_key"},
+                                     headers=auth,timeout=30)
+    accounts_response.raise_for_status()
+    registered = {a["puuid"]: a["alias_key"] for a in accounts_response.json()}
+    jobs_response = requests.get(base+"acca_match_jobs",
+                                 params={"select":"match_id,status,error_message","limit":"10000"},
+                                 headers=auth,timeout=30)
+    jobs_response.raise_for_status()
+    jobs = {j["match_id"]:j for j in jobs_response.json()}
     archived_ids = supabase_archive.list_match_ids()
     archived = set(archived_ids)
-    for row in queue:
-        if row["MATCH_ID"] in archived:
-            row["ESTADO"], row["MENSAJE"] = "PROCESADA", ""
-            row["PROCESADA_UTC"] = datetime.now(timezone.utc).isoformat()
-        else:
-            row["ESTADO"], row["MENSAJE"] = "PENDIENTE", "Esperando archivo en Supabase (usá /partida en Discord)"
-    write_rows(book,"REGISTRO",GENERAL["REGISTRO"],
-               [[r.get(k,"") for k in GENERAL["REGISTRO"]] for r in queue])
+    # Pending submissions remain visible, including the reason for missing players.
+    for mid, job in jobs.items():
+        if mid not in existing:
+            queue.append({"MATCH_ID":mid,"ESTADO":job["status"],
+                          "MENSAJE":job.get("error_message") or "",
+                          "LADO_ACCA":"","PROCESADA_UTC":""})
+            existing.add(mid)
     matches,participants,details = [],[],[]
+    eligible = set()
     for mid in archived_ids:
         data = supabase_archive.load(mid,"match")
         timeline = supabase_archive.load(mid,"timeline")
         if data is None or timeline is None:
             raise RuntimeError("Archivo incompleto en Supabase: "+mid)
+        teams = {100:set(),200:set()}
+        for p in data.get("info",{}).get("participants",[]):
+            alias = registered.get(p.get("puuid"))
+            if alias and p.get("teamId") in teams:
+                teams[p["teamId"]].add(alias)
+        complete = [team for team,aliases in teams.items() if len(aliases)==5]
+        if len(complete)!=1:
+            maximum = max(len(aliases) for aliases in teams.values())
+            reason = ("Ambos equipos tienen 5 jugadores ACCA; no se puede determinar el equipo oficial."
+                      if len(complete)>1 else
+                      f"Faltan {5-maximum} jugadores ACCA registrados en el mismo equipo ({maximum}/5). Registralos con /jugador.")
+            if jobs.get(mid,{}).get("status")!="PENDIENTE" or jobs.get(mid,{}).get("error_message")!=reason:
+                response=requests.patch(base+"acca_match_jobs",
+                    params={"match_id":"eq."+mid},
+                    headers={**auth,"Content-Type":"application/json"},
+                    json={"status":"PENDIENTE","error_message":reason},timeout=30)
+                response.raise_for_status()
+            for row in queue:
+                if row["MATCH_ID"]==mid:
+                    row["ESTADO"],row["MENSAJE"]="PENDIENTE",reason
+            continue
+        eligible.add(mid)
         source = next((r for r in queue if r["MATCH_ID"] == mid),{})
-        match,_ = parse_match(data,members,str(source.get("LADO_ACCA","")).strip() or None)
+        forced = "AZUL" if complete[0]==100 else "ROJO"
+        match,_ = parse_match(data,members,forced)
         matches.append(expanded_match(data,match,members))
         participants.extend(expanded_players(data,members,match))
-        side = 100 if match[4] == "AZUL" else 200
-        detail,_ = detailed_rows(data,members,side)
+        detail,_ = detailed_rows(data,members,complete[0])
         details.extend(dict(zip(EXTRA_TABS["RAW_DETALLE"],r)) for r in detail)
+    for row in queue:
+        mid=row["MATCH_ID"]
+        if mid in eligible:
+            # The Worker is responsible for final ARCHIVADA status after immediate publication.
+            job=jobs.get(mid,{})
+            if job.get("status")=="ARCHIVADA":
+                row["ESTADO"],row["MENSAJE"]="PROCESADA",""
+                row["PROCESADA_UTC"]=datetime.now(timezone.utc).isoformat()
+            else:
+                row["ESTADO"],row["MENSAJE"]="PENDIENTE",job.get("error_message") or "Esperando publicación automática"
+        elif mid not in archived:
+            job=jobs.get(mid,{})
+            row["ESTADO"]=job.get("status") or "PENDIENTE"
+            row["MENSAJE"]=job.get("error_message") or "Esperando archivo en Supabase (usá /partida en Discord)"
+    write_rows(book,"REGISTRO",GENERAL["REGISTRO"],
+               [[r.get(k,"") for k in GENERAL["REGISTRO"]] for r in queue])
     rebuild(book,matches,participants)
     present(book,players_book,matches,participants,details)
 
