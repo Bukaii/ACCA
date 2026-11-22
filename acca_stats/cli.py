@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from .core import TABS, HEADERS_MATCH, HEADERS_PLAYER, parse_match, upsert, summary
 from .analytics import EXTRA_TABS, archive, detailed_rows, timeline_rows, associate_builds, replace_by_match, unarchive
 from . import supabase_archive
-from .presentation import GENERAL, PLAYERS, ensure_tab, write_view, style, hide_legacy, build_general, build_players, display_bans
+from .presentation import GENERAL, PLAYERS, ensure_tab, write_view, style, hide_legacy, build_general, display_bans
 
 ROUTES = {"LAS":"americas","LAN":"americas","NA":"americas","BR":"americas",
           "EUW":"europe","EUNE":"europe","TR":"europe","RU":"europe",
@@ -72,7 +72,6 @@ def present(book, players_book, matches=None, participants=None, details=None):
     write_view(book,"PARTIDAS",GENERAL["PARTIDAS"],[[display_bans(m.get(k,""),m.get("VERSION","")) if k in ("BANS_ACCA","BANS_RIVAL") else m.get(k,"") for k in GENERAL["PARTIDAS"]] for m in matches])
     # REGISTRO is the user-facing submission queue; do not overwrite it from a legacy tab.
     # Existing entries and statuses must survive every presentation refresh.
-    ranking,history=build_players(matches,participants,details)
     # CAMPEONES is a generated, normalized table: never mix legacy captions
     # and secondary headers with the actual champion rows.
     champion_rows = summary([
@@ -90,8 +89,6 @@ def present(book, players_book, matches=None, participants=None, details=None):
         first_extra = rowcol_to_a1(1,len(champion_header)+1).replace("1","")
         last_extra = rowcol_to_a1(champion_ws.row_count,champion_ws.col_count)
         champion_ws.batch_clear([f"{first_extra}1:{last_extra}"])
-    write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
-    write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
     # Link aliases to their dedicated J_* tabs in the SAME players workbook.
     registry_rows=records(players_book,"JUGADORES")
     alias_tabs={}
@@ -105,8 +102,6 @@ def present(book, players_book, matches=None, participants=None, details=None):
     requests=[]
     for tab, column, values in (
         ("JUGADORES",0,[str(r.get("ALIAS","")) for r in registry_rows]),
-        ("RENDIMIENTO",1,[str(r[1]) if r[0]=="JUGADORES" else "" for r in ranking]),
-        ("PARTICIPACIONES",1,[str(r[1]) for r in history])
     ):
         ws=players_book.worksheet(tab)
         for index,alias in enumerate(values,1):
@@ -328,7 +323,7 @@ def present(book, players_book, matches=None, participants=None, details=None):
         }} for index, name in enumerate(ordered)
     ]})
     # Put navigation and instructions next to their corresponding editable tables.
-    player_order = ["JUGADORES", "RENDIMIENTO", "PARTICIPACIONES"]
+    player_order = ["JUGADORES"]
     players_book.batch_update({"requests":[{"updateSheetProperties":{"properties":
         {"sheetId":players_book.worksheet(name).id,"index":i},"fields":"index"}}
         for i,name in enumerate(player_order)]})
