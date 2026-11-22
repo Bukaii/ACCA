@@ -230,19 +230,32 @@ export async function publishPlayers(env) {
     index+=Math.max(1,accounts.filter(a=>a.alias_key===p.alias_key).length);
   }
 }
+const championCache=new Map();
+async function championNamesFor(version) {
+  const patch=String(version||"").split(".").slice(0,2).join(".");
+  if(!patch) return {};
+  if(!championCache.has(patch)) championCache.set(patch,(async()=>{
+    const response=await fetch("https://ddragon.leagueoflegends.com/cdn/"+patch+".1/data/es_MX/champion.json");
+    if(!response.ok) throw Error("Riot Data Dragon champions HTTP "+response.status+" for "+patch);
+    const data=(await response.json()).data||{};
+    return Object.fromEntries(Object.values(data).map(c=>[String(c.key),c.name]));
+  })());
+  return championCache.get(patch);
+}
 export async function publishMatch(env) {
   await publishPlayers(env);
   const access=await token(env),data=await archived(env),{accounts}=await roster(env);
   const puuids=new Set(accounts.map(a=>a.puuid));
-  const matchRows=data.map(({id,match})=>{
+  const matchRows=await Promise.all(data.map(async ({id,match})=>{
     const info=match.info||{},own=info.participants||[];
     const registered=own.filter(p=>puuids.has(p.puuid));
     const side=registered[0]?.teamId||100;
     const acca=own.filter(p=>p.teamId===side),rival=own.filter(p=>p.teamId!==side);
-    const bans=team=>(info.teams||[]).find(t=>t.teamId===team)?.bans?.map(b=>b.championId).join("|")||"";
+    const championNames=await championNamesFor(info.gameVersion);
+    const bans=team=>(info.teams||[]).find(t=>t.teamId===team)?.bans?.map(b=>b.championId<=0?"Sin ban":(championNames[String(b.championId)]||"ID "+b.championId)).join(" + ")||"Sin baneos";
     return [id,new Date(info.gameCreation||0).toISOString(),info.gameMode||"",info.gameVersion||"",side===100?"AZUL":"ROJO",registered[0]?.win?"VICTORIA":"DERROTA",
       acca.map(p=>p.championName).join(" | "),registered.length,acca.map(p=>p.championName).join(" + "),rival.map(p=>p.championName).join(" + "),bans(side),bans(side===100?200:100),info.gameDuration||0,"DISCORD"];
-  });
+  }));
   const wins=matchRows.filter(r=>r[5]==="VICTORIA").length;
   await put(access,GENERAL,[
     ["PARTIDAS!A1",[["MATCH_ID","FECHA_UTC","MODO","VERSION","LADO_ACCA","RESULTADO","EQUIPO_ACCA","N_ACCA","COMPOSICION_ACCA","COMPOSICION_RIVAL","BANS_ACCA","BANS_RIVAL","DURACION_SEG","FUENTE"],...matchRows]],
