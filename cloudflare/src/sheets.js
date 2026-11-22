@@ -96,45 +96,83 @@ async function updatePage(access,alias,accounts,archives) {
     const role=byRole.get(r)||{count:0,wins:0};role.count++;role.wins+=p.win?1:0;byRole.set(r,role);
     for(let i=0;i<7;i++){const item=p["item"+i];if(item>0)byItem.set(item,(byItem.get(item)||0)+1);}
   }
+  const sum=(field)=>own.reduce((n,p)=>n+(Number(p[field])||0),0);
+  const avg=(fn)=>own.length?Math.round(100*own.reduce((n,p)=>n+fn(p),0)/own.length)/100:0;
+  const wilson=own.length?Math.max(0,100*((wins/own.length+1.96*1.96/(2*own.length)-1.96*Math.sqrt((wins/own.length)*(1-wins/own.length)/own.length+1.96*1.96/(4*own.length*own.length)))/(1+1.96*1.96/own.length))):0;
+  const rate=(w,n)=>n?Math.round(w/n*10000)/100:0;
   const rows=[
-    [alias+" — ACCA"],["Riot IDs: "+accounts.filter(a=>a.alias_key===alias.toLocaleLowerCase("es")).map(a=>a.riot_id).join(" | ")],
-    [],["Resumen histórico"],["PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%","KILLS","MUERTES","ASISTENCIAS","KDA","DAÑO_PROM","ORO_PROM","CS_MIN","VISION"],
-    [own.length,wins,own.length-wins,own.length?Math.round(wins/own.length*10000)/100:0,
-     own.reduce((n,p)=>n+(p.kills||0),0),own.reduce((n,p)=>n+(p.deaths||0),0),own.reduce((n,p)=>n+(p.assists||0),0),
-     own.length?(own.reduce((n,p)=>n+(p.kills||0)+(p.assists||0),0)/Math.max(1,own.reduce((n,p)=>n+(p.deaths||0),0))).toFixed(2):0,
-     own.length?Math.round(own.reduce((n,p)=>n+(p.totalDamageDealtToChampions||0),0)/own.length):0,
-     own.length?Math.round(own.reduce((n,p)=>n+(p.goldEarned||0),0)/own.length):0,
-     own.length?(own.reduce((n,p)=>n+((p.totalMinionsKilled||0)+(p.neutralMinionsKilled||0))/Math.max(1,(p.match.info.gameDuration||0)/60),0)/own.length).toFixed(2):0,
-     own.length?Math.round(own.reduce((n,p)=>n+(p.visionScore||0),0)/own.length):0],
-    [],["Por campeón"],["CAMPEON","PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%","KILLS","MUERTES","ASISTENCIAS"],
-    ...[...byChampion].sort((a,b)=>b[1].count-a[1].count).map(([c,x])=>[c,x.count,x.wins,x.count-x.wins,Math.round(x.wins/x.count*10000)/100,x.k,x.d,x.a]),
-    [],["Por rol"],["ROL","PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%"],
-    ...[...byRole].sort((a,b)=>b[1].count-a[1].count).map(([r,x])=>[r,x.count,x.wins,x.count-x.wins,Math.round(x.wins/x.count*10000)/100]),
-    [],["Objetos finales más usados"],["ITEM_ID","APARICIONES"],
+    [alias+" — "+accounts.filter(a=>a.alias_key===alias.toLocaleLowerCase("es")).map(a=>a.riot_id).join(" · ")],
+    ["Región: LA2 · Actualizado (UTC): "+new Date().toISOString().replace("T"," ").slice(0,19)],
+    ["Informe individual de ACCA · partidas oficiales registradas, rendimiento, campeones, posiciones, objetos y detalle histórico."],
+    [],
+    ["Resumen histórico"],
+    ["PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%","WR_MIN_95_%","CONFIANZA","KILLS","MUERTES","ASISTENCIAS","KDA","DAÑO_PROM","ORO_PROM","CS_MIN","VISION","N_DETALLE"],
+    [own.length,wins,own.length-wins,rate(wins,own.length),Math.round(wilson*100)/100,own.length<10?"BAJA":own.length<30?"MEDIA":"ALTA",
+      sum("kills"),sum("deaths"),sum("assists"),own.length?Math.round((sum("kills")+sum("assists"))/Math.max(1,sum("deaths"))*100)/100:0,
+      avg(p=>p.totalDamageDealtToChampions||0),avg(p=>p.goldEarned||0),
+      avg(p=>((p.totalMinionsKilled||0)+(p.neutralMinionsKilled||0))/Math.max(1,(p.match.info.gameDuration||0)/60)),
+      avg(p=>p.visionScore||0),own.length],
+    [],
+    ["Por campeón"],
+    ["Rendimiento por campeón utilizado en partidas oficiales."],
+    ["CAMPEON","PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%","WR_MIN_95_%","KILLS","MUERTES","ASISTENCIAS","KDA"],
+    ...[...byChampion].sort((a,b)=>b[1].count-a[1].count).map(([c,x])=>[c,x.count,x.wins,x.count-x.wins,rate(x.wins,x.count),0,x.k,x.d,x.a,Math.round((x.k+x.a)/Math.max(1,x.d)*100)/100]),
+    [],
+    ["Por rol"],
+    ["Resultados agrupados por posición jugada."],
+    ["ROL","PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%","WR_MIN_95_%"],
+    ...[...byRole].sort((a,b)=>b[1].count-a[1].count).map(([r,x])=>[r,x.count,x.wins,x.count-x.wins,rate(x.wins,x.count),0]),
+    [],
+    ["Objetos finales más usados"],
+    ["Frecuencia de objetos en las partidas registradas."],
+    ["ITEM_ID","APARICIONES"],
     ...[...byItem].sort((a,b)=>b[1]-a[1]).slice(0,30),
-    [],["Historial de partidas"],["MATCH_ID","FECHA_UTC","RESULTADO","CAMPEON","ROL","KILLS","DEATHS","ASSISTS","KDA","CS_MIN","ORO","DANO","VISION","ITEMS"],
-    ...own.map(p=>[p.matchId,new Date(p.match.info.gameCreation||0).toISOString(),result(p),p.championName||"",p.teamPosition||"",p.kills||0,p.deaths||0,p.assists||0,
-      ((p.kills+p.assists)/Math.max(1,p.deaths)).toFixed(2),(((p.totalMinionsKilled||0)+(p.neutralMinionsKilled||0))/Math.max(1,(p.match.info.gameDuration||0)/60)).toFixed(2),
+    [],
+    ["Historial de partidas registradas"],
+    ["Detalle de cada participación oficial; incluye resultados y métricas de Riot."],
+    ["MATCH_ID","FECHA_UTC","MODO","RESULTADO","CAMPEON","ROL","KILLS","DEATHS","ASSISTS","KDA","CS_MIN","ORO","DANO","VISION","ITEMS"],
+    ...own.map(p=>[p.matchId,new Date(p.match.info.gameCreation||0).toISOString(),p.match.info.gameMode||"",result(p),p.championName||"",p.teamPosition||p.individualPosition||"",
+      p.kills||0,p.deaths||0,p.assists||0,Math.round(((p.kills||0)+(p.assists||0))/Math.max(1,p.deaths||0)*100)/100,
+      Math.round(((p.totalMinionsKilled||0)+(p.neutralMinionsKilled||0))/Math.max(1,(p.match.info.gameDuration||0)/60)*100)/100,
       p.goldEarned||0,p.totalDamageDealtToChampions||0,p.visionScore||0,Array.from({length:7},(_,i)=>p["item"+i]).filter(x=>x>0).join("|")])
   ];
-  await google(access,PLAYERS,":batchUpdate","POST",{requests:[
+  const width=18, navy={red:0.12,green:0.19,blue:0.30},blue={red:0.19,green:0.32,blue:0.49},
+    pale={red:0.91,green:0.94,blue:0.98},white={red:1,green:1,blue:1},ink={red:0.12,green:0.18,blue:0.27};
+  const meta=await google(access,PLAYERS,"?fields=sheets(properties(sheetId),merges)");
+  const existing=meta.sheets.find(sh=>sh.properties.sheetId===ws.properties.sheetId);
+  const requests=(existing?.merges||[]).map(range=>({unmergeCells:{range}}));
+  requests.push(
     {updateCells:{range:{sheetId:ws.properties.sheetId,startRowIndex:0},fields:"userEnteredValue"}},
-    {updateSheetProperties:{properties:{sheetId:ws.properties.sheetId,gridProperties:{hideGridlines:true}},fields:"gridProperties.hideGridlines"}}
-  ]});
-  await put(access,PLAYERS,[[titleRange(ws.properties.title,"A1"),rows]]);
-  const headings=new Set(["Resumen histórico","Por campeón","Por rol","Objetos finales más usados","Historial de partidas"]);
-  const requests=[];
-  rows.forEach((r,i)=>{
-    if(i===0||headings.has(r[0])||(i>0&&headings.has(rows[i-1]?.[0]))) {
-      const dark=i===0||headings.has(r[0]);
-      requests.push({repeatCell:{range:{sheetId:ws.properties.sheetId,startRowIndex:i,endRowIndex:i+1,startColumnIndex:0,endColumnIndex:14},
-        cell:{userEnteredFormat:{backgroundColor:dark?{red:0.12,green:0.19,blue:0.30}:{red:0.91,green:0.94,blue:0.98},
-          textFormat:{bold:true,fontSize:i===0?16:11,foregroundColor:dark?{red:1,green:1,blue:1}:{red:0.12,green:0.18,blue:0.27}}}},
-        fields:"userEnteredFormat.backgroundColor,userEnteredFormat.textFormat"}});
-    }
+    {updateSheetProperties:{properties:{sheetId:ws.properties.sheetId,gridProperties:{hideGridlines:true,frozenRowCount:0}},fields:"gridProperties.hideGridlines,gridProperties.frozenRowCount"}},
+    {repeatCell:{range:{sheetId:ws.properties.sheetId},cell:{userEnteredFormat:{backgroundColor:white,verticalAlignment:"MIDDLE",wrapStrategy:"WRAP",textFormat:{fontSize:10,foregroundColor:ink}}},fields:"userEnteredFormat"}},
+    {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:0,endIndex:1},properties:{pixelSize:350},fields:"pixelSize"}},
+    {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:1,endIndex:2},properties:{pixelSize:260},fields:"pixelSize"}},
+    {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:2,endIndex:width},properties:{pixelSize:145},fields:"pixelSize"}}
+  );
+  const sections=new Set(["Resumen histórico","Por campeón","Por rol","Objetos finales más usados","Historial de partidas registradas"]);
+  const headers=new Set(["PARTIDAS","CAMPEON","ROL","ITEM_ID","MATCH_ID"]);
+  function paint(i,color,fontColor,fontSize,height,bold=true) {
+    requests.push({repeatCell:{range:{sheetId:ws.properties.sheetId,startRowIndex:i,endRowIndex:i+1,startColumnIndex:0,endColumnIndex:width},
+      cell:{userEnteredFormat:{backgroundColor:color,verticalAlignment:"MIDDLE",wrapStrategy:"WRAP",
+        textFormat:{bold,fontSize,foregroundColor:fontColor}}},fields:"userEnteredFormat"}});
+    requests.push({updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"ROWS",startIndex:i,endIndex:i+1},properties:{pixelSize:height},fields:"pixelSize"}});
+  }
+  rows.forEach((row,i)=>{
+    const first=row[0];
+    if(i===0) paint(i,navy,white,15,68);
+    else if(i===1||i===2) paint(i,pale,ink,10,i===1?36:58,false);
+    else if(sections.has(first)) {
+      paint(i,blue,white,15,58);
+      requests.push({updateBorders:{range:{sheetId:ws.properties.sheetId,startRowIndex:i,endRowIndex:i+1,startColumnIndex:0,endColumnIndex:width},
+        top:{style:"SOLID_MEDIUM",color:navy}}});
+    } else if(headers.has(first)&&row.length>1) paint(i,pale,ink,10,46);
+    else if(row.length===1&&first) paint(i,{red:0.95,green:0.97,blue:0.99},ink,10,46,false);
+    else if(row.length>1) paint(i,i%2?white:{red:0.97,green:0.98,blue:0.99},ink,10,34,false);
+    else requests.push({updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"ROWS",startIndex:i,endIndex:i+1},properties:{pixelSize:22},fields:"pixelSize"}});
+    if(row.length===1&&first) requests.push({mergeCells:{range:{sheetId:ws.properties.sheetId,startRowIndex:i,endRowIndex:i+1,startColumnIndex:0,endColumnIndex:width},mergeType:"MERGE_ALL"}});
   });
-  requests.push({updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:0,endIndex:1},properties:{pixelSize:280},fields:"pixelSize"}});
   await google(access,PLAYERS,":batchUpdate","POST",{requests});
+  await put(access,PLAYERS,[[titleRange(ws.properties.title,"A1"),rows]]);
   return ws.properties.sheetId;
 }
 function titleRange(title,range){return "'"+title.replace(/'/g,"''")+"'!"+range;}
