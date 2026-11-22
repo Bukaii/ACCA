@@ -71,7 +71,12 @@ jobs:
             echo "Queue acca-partidas created"
           fi
 
-      - name: Validate Worker JavaScript\n        run: |\n          node --check cloudflare/src/index.js\n          node --check cloudflare/src/sheets.js\n\n      - name: Deploy Worker and Queue bindings
+      - name: Validate Worker JavaScript
+        run: |
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/sheets.js
+
+      - name: Deploy Worker and Queue bindings
         working-directory: cloudflare
         run: |
           export CLOUDFLARE_ACCOUNT_ID="$(printf %s "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
