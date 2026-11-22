@@ -90,34 +90,8 @@ def present(book, players_book, matches=None, participants=None, details=None):
         last_extra = rowcol_to_a1(champion_ws.row_count,champion_ws.col_count)
         champion_ws.batch_clear([f"{first_extra}1:{last_extra}"])
     registry_rows=records(players_book,"JUGADORES")
-    # Create a dedicated page for every registered alias, even with no matches.
-    # Never recreate obsolete RENDIMIENTO or PARTICIPACIONES tabs.
-    for alias in sorted({str(r.get("ALIAS","")).strip() for r in registry_rows if r.get("ALIAS")}):
-        tab="J_"+alias[:95]
-        ws=ensure_tab(players_book,tab,[])
-        own=[p for p in participants if str(p.get("ALIAS",""))==alias and p.get("ES_ACCA")=="SI"]
-        wins=sum(1 for p in own if next((m.get("RESULTADO") for m in matches if str(m.get("MATCH_ID"))==str(p.get("MATCH_ID"))),"")=="VICTORIA")
-        rows=[[alias],["Perfil del jugador ACCA"],[],["Resumen histórico"],
-              ["PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%"],
-              [len(own),wins,len(own)-wins,round(100*wins/len(own),2) if own else 0],
-              [],["Por campeón"],["CAMPEON","PARTIDAS"],
-              *[[c,sum(1 for p in own if p.get("CAMPEON")==c)] for c in sorted({p.get("CAMPEON") for p in own if p.get("CAMPEON")})],
-              [],["Por rol"],["ROL","PARTIDAS"],
-              *[[role,sum(1 for p in own if p.get("ROL")==role)] for role in sorted({p.get("ROL") for p in own if p.get("ROL")})],
-              [],["Historial de partidas"],["MATCH_ID","CAMPEON","ROL","KILLS","DEATHS","ASSISTS"],
-              *[[p.get("MATCH_ID",""),p.get("CAMPEON",""),p.get("ROL",""),p.get("KILLS",0),p.get("DEATHS",0),p.get("ASSISTS",0)] for p in own]]
-        ws.update(range_name="A1",values=rows,value_input_option="RAW")
-        if ws.row_count>len(rows):
-            ws.batch_clear([f"A{len(rows)+1}:F{ws.row_count}"])
-        players_book.batch_update({"requests":[
-            {"repeatCell":{"range":{"sheetId":ws.id,"startRowIndex":0,"endRowIndex":1},
-             "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.12,"green":0.19,"blue":0.30},
-             "textFormat":{"bold":True,"fontSize":16,"foregroundColor":{"red":1,"green":1,"blue":1}}}},
-             "fields":"userEnteredFormat"}},
-            {"updateDimensionProperties":{"range":{"sheetId":ws.id,"dimension":"COLUMNS","startIndex":0,"endIndex":1},
-             "properties":{"pixelSize":280},"fields":"pixelSize"}}
-        ]})
-    # Rebuild links only after all dedicated tabs exist.
+    # Player pages are owned by the immediate Cloudflare publisher.
+    # Never overwrite their original multi-section layout with reduced tables.
     alias_tabs={ws.title[2:]:ws.id for ws in players_book.worksheets() if ws.title.startswith("J_")}
     requests=[]
     for index,row in enumerate(registry_rows,1):
