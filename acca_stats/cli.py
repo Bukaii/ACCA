@@ -97,8 +97,6 @@ def present(book, players_book, matches=None, participants=None, details=None):
             alias_tabs[ws.title[2:]]=ws.id
     # Write plain aliases and apply native rich-text links instead of formulas.
     # This is locale-independent and keeps ALIAS usable as a stable identifier.
-    write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
-    write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
     requests=[]
     for tab, column, values in (
         ("JUGADORES",0,[str(r.get("ALIAS","")) for r in registry_rows]),
@@ -116,185 +114,47 @@ def present(book, players_book, matches=None, participants=None, details=None):
                 "fields":"userEnteredValue,userEnteredFormat.textFormat.link,userEnteredFormat.textFormat.foregroundColor,userEnteredFormat.textFormat.underline"
             }})
 
-    # Restore complete historical player analytics from the untouched original
-    # J_* reports in the general workbook. Append current match history below.
-    # Never replace the multi-section source with a reduced match-only table.
-    player_header = ["MATCH_ID","FECHA_UTC","MODO","RESULTADO","CAMPEON","ROL",
-                     "KILLS","DEATHS","ASSISTS","KDA","CS_MIN","ORO","DANO","VISION","ITEMS"]
-    by_match = {str(m.get("MATCH_ID")): m for m in matches}
-    for source in book.worksheets():
-        if not source.title.startswith("J_"):
-            continue
-        alias = source.title[2:]
-        historical = source.get_all_values()
-        if not historical:
-            continue
-        player_rows = []
-        for p in participants:
-            if str(p.get("ALIAS","")) != alias or p.get("ES_ACCA") != "SI":
-                continue
-            match = by_match.get(str(p.get("MATCH_ID")))
-            if not match:
-                continue
-            player_rows.append([p.get("MATCH_ID",""),match.get("FECHA_UTC",""),
-                match.get("MODO",""),match.get("RESULTADO",""),p.get("CAMPEON",""),
-                p.get("ROL",""),p.get("KILLS",0),p.get("DEATHS",0),p.get("ASSISTS",0),
-                p.get("KDA",""),p.get("CS_MIN",""),p.get("ORO",0),
-                p.get("DANO_CAMPEONES",p.get("DANO",0)),
-                p.get("VISION",0),p.get("ITEMS","")])
-        # Keep every original analytical section; add new history after it.
-        rows = [list(row) for row in historical]
-        rows.extend([[], ["HISTORIAL DE PARTIDAS REGISTRADAS"], player_header])
-        rows.extend(player_rows)
-        ws = ensure_tab(players_book,source.title,[])
-        width = max(18, max(map(len,rows)))
-        if ws.col_count < width:
-            ws.add_cols(width-ws.col_count)
-        if ws.row_count < len(rows):
-            ws.add_rows(len(rows)-ws.row_count)
-        from gspread.utils import rowcol_to_a1
-        # Unmerge old report cells and remove stale section bars before writing.
-        players_book.batch_update({"requests":[
-            {"repeatCell":{"range":{"sheetId":ws.id},
-                "cell":{"userEnteredFormat":{}},"fields":"userEnteredFormat"}}
-        ]})
+    # Create a dedicated page for every registered alias, even with no matches.
+    # Never recreate obsolete RENDIMIENTO or PARTICIPACIONES tabs.
+    for alias in sorted({str(r.get("ALIAS","")).strip() for r in registry_rows if r.get("ALIAS")}):
+        tab="J_"+alias[:95]
+        ws=ensure_tab(players_book,tab,[])
+        own=[p for p in participants if str(p.get("ALIAS",""))==alias and p.get("ES_ACCA")=="SI"]
+        wins=sum(1 for p in own if next((m.get("RESULTADO") for m in matches if str(m.get("MATCH_ID"))==str(p.get("MATCH_ID"))),"")=="VICTORIA")
+        rows=[[alias],["Perfil del jugador ACCA"],[],["Resumen histórico"],
+              ["PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%"],
+              [len(own),wins,len(own)-wins,round(100*wins/len(own),2) if own else 0],
+              [],["Por campeón"],["CAMPEON","PARTIDAS"],
+              *[[c,sum(1 for p in own if p.get("CAMPEON")==c)] for c in sorted({p.get("CAMPEON") for p in own if p.get("CAMPEON")})],
+              [],["Por rol"],["ROL","PARTIDAS"],
+              *[[role,sum(1 for p in own if p.get("ROL")==role)] for role in sorted({p.get("ROL") for p in own if p.get("ROL")})],
+              [],["Historial de partidas"],["MATCH_ID","CAMPEON","ROL","KILLS","DEATHS","ASSISTS"],
+              *[[p.get("MATCH_ID",""),p.get("CAMPEON",""),p.get("ROL",""),p.get("KILLS",0),p.get("DEATHS",0),p.get("ASSISTS",0)] for p in own]]
         ws.update(range_name="A1",values=rows,value_input_option="RAW")
-        old_length = len(ws.get_all_values())
-        if old_length > len(rows):
-            ws.batch_clear([f"A{len(rows)+1}:{rowcol_to_a1(old_length,ws.col_count)}"])
-        # Dashboard-like visual hierarchy: a legible identity banner,
-        # distinct section cards, separated table headers and breathing room.
-        # Formatting only: never delete, move or truncate historical metrics.
-        # Classify every section by its position and surrounding table,
-        # not by a short hardcoded list of examples.
-        def filled(row):
-            return [str(v).strip() for v in row if str(v).strip()]
-        def single(i):
-            return i < len(rows) and len(filled(rows[i])) == 1
-        def blank(i):
-            return i < 0 or i >= len(rows) or not filled(rows[i])
-        def looks_header(row):
-            cells = filled(row)
-            if len(cells)<2:
-                return False
-            first = cells[0]
-            return (first == first.upper() and any(c.isalpha() for c in first)
-                    and all(len(c)<65 for c in cells[:5]))
-        section_rows = []
-        description_rows = []
-        empty_state_rows = []
-        header_rows = []
-        for i,row in enumerate(rows):
-            if i < 3 or not filled(row):
-                continue
-            label = str(row[0]).strip()
-            if looks_header(row):
-                header_rows.append(i)
-            elif single(i) and label.casefold().startswith(("sin datos","no hay datos")):
-                empty_state_rows.append(i)
-            elif single(i) and blank(i-1):
-                section_rows.append(i)
-            elif single(i) and i-1 in section_rows:
-                description_rows.append(i)
-            elif single(i) and i+1<len(rows) and looks_header(rows[i+1]):
-                description_rows.append(i)
-            elif single(i):
-                description_rows.append(i)
-        navy = {"red":0.12,"green":0.19,"blue":0.30}
-        blue = {"red":0.19,"green":0.32,"blue":0.49}
-        pale = {"red":0.91,"green":0.94,"blue":0.98}
-        white = {"red":1,"green":1,"blue":1}
-        ink = {"red":0.12,"green":0.18,"blue":0.27}
-        requests = [
-            {"updateSheetProperties":{"properties":{"sheetId":ws.id,
-                "gridProperties":{"frozenRowCount":0,"hideGridlines":True}},
-                "fields":"gridProperties.frozenRowCount,gridProperties.hideGridlines"}},
-            {"updateDimensionProperties":{"range":{"sheetId":ws.id,
-                "dimension":"COLUMNS","startIndex":0,"endIndex":1},
-                "properties":{"pixelSize":350},"fields":"pixelSize"}},
-            {"updateDimensionProperties":{"range":{"sheetId":ws.id,
-                "dimension":"COLUMNS","startIndex":1,"endIndex":2},
-                "properties":{"pixelSize":260},"fields":"pixelSize"}},
-            {"repeatCell":{"range":{"sheetId":ws.id},
-                "cell":{"userEnteredFormat":{"backgroundColor":white,
-                    "verticalAlignment":"MIDDLE","wrapStrategy":"WRAP",
-                    "textFormat":{"fontSize":10,"foregroundColor":ink}}},
-                "fields":"userEnteredFormat"}},
-        ]
-        if width>2:
-            requests.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
-                "dimension":"COLUMNS","startIndex":2,"endIndex":width},
-                "properties":{"pixelSize":145},"fields":"pixelSize"}})
-        def paint(i, color, font_color, size, height, bold=True):
-            requests.append({"repeatCell":{"range":{"sheetId":ws.id,
-                "startRowIndex":i,"endRowIndex":i+1,"startColumnIndex":0,
-                "endColumnIndex":width},
-                "cell":{"userEnteredFormat":{"backgroundColor":color,
-                    "verticalAlignment":"MIDDLE","wrapStrategy":"WRAP",
-                    "textFormat":{"bold":bold,"fontSize":size,
-                        "foregroundColor":font_color}}},
-                "fields":"userEnteredFormat"}})
-            requests.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
-                "dimension":"ROWS","startIndex":i,"endIndex":i+1},
-                "properties":{"pixelSize":height},"fields":"pixelSize"}})
-        # Name is the primary page heading, not a tiny cell label.
-        paint(0,navy,white,15,68)
-        # Region and report explanation form a separate, readable intro.
-        for i in (1,2):
-            if i < len(rows):
-                paint(i,pale,ink,10,36 if i==1 else 58,False)
-        for i in section_rows:
-            paint(i,blue,white,15,58)
-            requests.append({"updateBorders":{"range":{"sheetId":ws.id,
-                "startRowIndex":i,"endRowIndex":i+1,
-                "startColumnIndex":0,"endColumnIndex":width},
-                "top":{"style":"SOLID_MEDIUM","color":navy}}})
-        for i in description_rows:
-            paint(i,{"red":0.95,"green":0.97,"blue":0.99},ink,10,46,False)
-        for i in empty_state_rows:
-            paint(i,{"red":0.96,"green":0.97,"blue":0.98},
-                  {"red":0.40,"green":0.46,"blue":0.53},10,46,False)
-        for i in header_rows:
-            paint(i,pale,ink,10,46)
-        # White margins between cards and softly striped data rows.
-        for i,row in enumerate(rows):
-            if i in section_rows or i in description_rows or i in empty_state_rows or i in header_rows or i<3:
-                continue
-            if not any(str(v).strip() for v in row):
-                requests.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
-                    "dimension":"ROWS","startIndex":i,"endIndex":i+1},
-                    "properties":{"pixelSize":22},"fields":"pixelSize"}})
-            elif len(row)>1:
-                requests.append({"repeatCell":{"range":{"sheetId":ws.id,
-                    "startRowIndex":i,"endRowIndex":i+1,"startColumnIndex":0,
-                    "endColumnIndex":width},
-                    "cell":{"userEnteredFormat":{"backgroundColor":
-                        white if i%2 else {"red":0.97,"green":0.98,"blue":0.99},
-                        "verticalAlignment":"MIDDLE","wrapStrategy":"WRAP",
-                        "textFormat":{"fontSize":10,"foregroundColor":ink}}},
-                    "fields":"userEnteredFormat"}})
-                requests.append({"updateDimensionProperties":{"range":{"sheetId":ws.id,
-                    "dimension":"ROWS","startIndex":i,"endIndex":i+1},
-                    "properties":{"pixelSize":34},"fields":"pixelSize"}})
-        # Existing legacy merges (often A:G) truncate the visible color and
-        # the player's name. Remove them before merging full-width section bars.
-        meta = players_book.fetch_sheet_metadata(
-            params={"fields":"sheets(properties(sheetId),merges)"})
-        old_merges = next((sh.get("merges",[]) for sh in meta.get("sheets",[])
-                           if sh["properties"]["sheetId"]==ws.id),[])
-        for merged in old_merges:
-            requests.insert(0,{"unmergeCells":{"range":merged}})
-        # Merge only rows known to contain a single value in column A.
-        # Never merge table headers or statistics, so no data is lost.
-        for i in [0,1,2]+section_rows+description_rows+empty_state_rows:
-            if i < len(rows) and len(rows[i])==1:
-                requests.append({"mergeCells":{"range":{"sheetId":ws.id,
-                    "startRowIndex":i,"endRowIndex":i+1,
-                    "startColumnIndex":0,"endColumnIndex":width},
-                    "mergeType":"MERGE_ALL"}})
-        players_book.batch_update({"requests":requests})
-    player_names = set(PLAYERS)
-    style(players_book,player_names)
+        if ws.row_count>len(rows):
+            ws.batch_clear([f"A{len(rows)+1}:F{ws.row_count}"])
+        players_book.batch_update({"requests":[
+            {"repeatCell":{"range":{"sheetId":ws.id,"startRowIndex":0,"endRowIndex":1},
+             "cell":{"userEnteredFormat":{"backgroundColor":{"red":0.12,"green":0.19,"blue":0.30},
+             "textFormat":{"bold":True,"fontSize":16,"foregroundColor":{"red":1,"green":1,"blue":1}}}},
+             "fields":"userEnteredFormat"}},
+            {"updateDimensionProperties":{"range":{"sheetId":ws.id,"dimension":"COLUMNS","startIndex":0,"endIndex":1},
+             "properties":{"pixelSize":280},"fields":"pixelSize"}}
+        ]})
+    # Rebuild links only after all dedicated tabs exist.
+    alias_tabs={ws.title[2:]:ws.id for ws in players_book.worksheets() if ws.title.startswith("J_")}
+    requests=[]
+    for index,row in enumerate(registry_rows,1):
+        alias=str(row.get("ALIAS",""))
+        gid=alias_tabs.get(alias)
+        if gid is None: continue
+        link="https://docs.google.com/spreadsheets/d/"+players_book.id+"/edit#gid="+str(gid)
+        requests.append({"updateCells":{"start":{"sheetId":players_book.worksheet("JUGADORES").id,
+            "rowIndex":index,"columnIndex":0},"rows":[{"values":[{
+            "userEnteredValue":{"stringValue":alias},
+            "userEnteredFormat":{"textFormat":{"link":{"uri":link},
+            "foregroundColor":{"red":0.10,"green":0.33,"blue":0.80},"underline":True}}}]}],
+            "fields":"userEnteredValue,userEnteredFormat.textFormat.link,userEnteredFormat.textFormat.foregroundColor,userEnteredFormat.textFormat.underline"}})
     # Published summaries are views, not a source of truth.
     # Expose complete, readable copies of the major analytics tables.
     friendly = {
