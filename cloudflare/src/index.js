@@ -207,6 +207,18 @@ export default {
         return new Response(JSON.stringify({ok:false,error:String(error).slice(0,300)}),{status:502,headers:{"Content-Type":"application/json"}});
       }
     }
+    if(request.method==="POST" && url.pathname==="/__publish") {
+      const token=request.headers.get("X-ACCA-Registration-Key")||"";
+      if(!env.ACCA_REGISTRATION_KEY||token!==env.ACCA_REGISTRATION_KEY)
+        return new Response("Unauthorized",{status:401});
+      try {
+        await publishMatch(env);
+        return json({ok:true,published:true});
+      } catch(e) {
+        console.error("Immediate Sheets publish failed",String(e));
+        return json({ok:false,error:String(e).slice(0,300)},502);
+      }
+    }
     if (request.method!=="POST") return new Response("ACCA Discord Bot");
     const body=await request.text();
     if (!await verified(request,body,env.DISCORD_PUBLIC_KEY)) return new Response("Unauthorized",{status:401});
@@ -247,7 +259,7 @@ export default {
     if (!id) return json({type:4,data:{content:"ID inválido. Ejemplo: LA2_1638914973",flags:64}});
     try {
       const current=await getJob(env,id);
-      if (current?.status==="ARCHIVADA"||current?.status==="PUBLICADA") return json({type:4,data:{content:"La partida "+id+" ya está archivada. Estado: "+current.status,flags:64}});
+      if (current?.status==="ARCHIVADA") return json({type:4,data:{content:"La partida "+id+" ya está archivada. Estado: "+current.status,flags:64}});
       if (current?.status==="PROCESANDO"||current?.status==="PENDIENTE")
         return json({type:4,data:{content:"La partida "+id+" ya está en proceso.",flags:64}});
       await setJob(env,id,{status:"PENDIENTE",requested_by:interaction.member?.user?.id||null,discord_application_id:interaction.application_id,error_message:null});
@@ -277,7 +289,7 @@ export default {
       const {id,appId,token}=msg.body;
       try {
         const previous=await getJob(env,id);
-        if(previous?.status!=="ARCHIVADA" && previous?.status!=="PUBLICADA") {
+        if(previous?.status!=="ARCHIVADA") {
           await setJob(env,id,{status:"PROCESANDO",error_message:null});
           const route=ROUTES[id.split("_")[0]];
           const [match,timeline]=await Promise.all([riot(env,route,id,"match"),riot(env,route,id,"timeline")]);
@@ -285,7 +297,7 @@ export default {
           await setJob(env,id,{status:"ARCHIVADA",archived_at:new Date().toISOString(),error_message:null});
         }
         await publishMatch(env);
-        await setJob(env,id,{status:"PUBLICADA",error_message:null});
+        await setJob(env,id,{status:"ARCHIVADA",error_message:null});
         await followup(env,appId,token,"Partida "+id+" archivada y estadísticas publicadas en Google Sheets.");
         msg.ack();
       } catch(e) {
