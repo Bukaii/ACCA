@@ -138,7 +138,7 @@ async function updatePage(access,alias,accounts,archives) {
     const role=byRole.get(r)||{count:0,wins:0};role.count++;role.wins+=p.win?1:0;byRole.set(r,role);
     // One observation per match and item, not one per item slot.
     // Metrics describe this player's performance in matches using that item.
-    const minutes=Math.max(1,(p.match.info.gameDuration||0)/60);
+    const itemMinutes=Math.max(1,(p.match.info.gameDuration||0)/60);
     for(const id of new Set(finalItemIds(p))) {
       const name=itemLabel(id,namesFor(p));
       const item=byItem.get(name)||{games:0,wins:0,k:0,d:0,a:0,damage:0,gold:0,cs:0,vision:0,champions:new Map()};
@@ -147,7 +147,7 @@ async function updatePage(access,alias,accounts,archives) {
       item.k+=p.kills||0;item.d+=p.deaths||0;item.a+=p.assists||0;
       item.damage+=p.totalDamageDealtToChampions||0;
       item.gold+=p.goldEarned||0;
-      item.cs+=((p.totalMinionsKilled||0)+(p.neutralMinionsKilled||0))/minutes;
+      item.cs+=((p.totalMinionsKilled||0)+(p.neutralMinionsKilled||0))/itemMinutes;
       item.vision+=p.visionScore||0;
       item.champions.set(c,(item.champions.get(c)||0)+1);
       byItem.set(name,item);
