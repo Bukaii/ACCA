@@ -134,13 +134,29 @@ async function registerCommands(env) {
       {name:"riot_id",description:"Nombre#TAG de Riot",type:3,required:true}
     ]}
   ];
-  for (const command of commands) {
-    const res=await fetch("https://discord.com/api/v10/applications/"+env.DISCORD_APPLICATION_ID+"/commands",{
-      method:"POST",headers:{"Authorization":"Bot "+env.DISCORD_BOT_TOKEN,"Content-Type":"application/json"},
-      body:JSON.stringify(command)
-    });
-    if (!res.ok) throw new Error("Discord command "+command.name+" HTTP "+res.status+": "+(await res.text()).slice(0,180));
+  const auth={"Authorization":"Bot "+env.DISCORD_BOT_TOKEN,"Content-Type":"application/json"};
+  const root="https://discord.com/api/v10/applications/"+env.DISCORD_APPLICATION_ID;
+  const request=async (url,method,body) => {
+    const res=await fetch(url,{method,headers:auth,...(body?{body:JSON.stringify(body)}:{})});
+    const result=await res.json().catch(()=>null);
+    if(!res.ok) throw new Error("Discord HTTP "+res.status+": "+JSON.stringify(result).slice(0,220));
+    return result;
+  };
+  // Global registration is retained, but guild commands are available immediately.
+  await request(root+"/commands","PUT",commands);
+  const guilds=await request("https://discord.com/api/v10/users/@me/guilds","GET");
+  if (!Array.isArray(guilds)) throw new Error("Discord did not return guilds");
+  const results=[];
+  for(const guild of guilds) {
+    const endpoint=root+"/guilds/"+guild.id+"/commands";
+    await request(endpoint,"PUT",commands);
+    const actual=await request(endpoint,"GET");
+    if(!commands.every(c=>actual.some(x=>x.name===c.name)))
+      throw new Error("Discord guild "+guild.id+" is missing slash commands");
+    results.push({guild_id:guild.id,commands:commands.map(c=>c.name)});
   }
+  if(!results.length) throw new Error("Bot is not present in any Discord guild");
+  return results;
 }
 export default {
   async scheduled(event,env,ctx) { ctx.waitUntil(registerCommands(env)); },
@@ -151,8 +167,8 @@ export default {
       if (!env.ACCA_REGISTRATION_KEY || token.length<32 || token!==env.ACCA_REGISTRATION_KEY)
         return new Response("Unauthorized",{status:401});
       try {
-        await registerCommands(env);
-        return json({ok:true,registered:["partida","jugadores"]});
+        const guilds=await registerCommands(env);
+        return json({ok:true,registered:["partida","jugadores"],guilds});
       } catch (error) {
         console.error("Discord command registration failed",String(error));
         return new Response(JSON.stringify({ok:false,error:String(error).slice(0,300)}),{status:502,headers:{"Content-Type":"application/json"}});
