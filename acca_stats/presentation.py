@@ -1,5 +1,4 @@
 """Unified, compact presentation for ACCA's two Google workbooks."""
-from collections import defaultdict
 from .core import summary
 
 GENERAL = {
@@ -9,8 +8,6 @@ GENERAL = {
 }
 PLAYERS = {
     "JUGADORES": ["ALIAS","RIOT_ID","REGION","ACTIVO","PUUID","ESTADO","MENSAJE"],
-    "RENDIMIENTO": ["SECCION","CLAVE","PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%","WR_MIN_95_%"],
-    "PARTICIPACIONES": ["MATCH_ID","ALIAS","CAMPEON","ROL","RESULTADO","KILLS","DEATHS","ASSISTS","KDA","KP_%","CS_MIN","ORO_MIN","DANO_MIN","VISION","ITEMS"],
 }
 NAVY = {"red":0.13,"green":0.20,"blue":0.32}
 PALE = {"red":0.92,"green":0.95,"blue":0.98}
@@ -64,7 +61,7 @@ def style(book,names):
             {"updateDimensionProperties":{"range":{"sheetId":gid,"dimension":"COLUMNS","startIndex":0,"endIndex":width},"properties":{"pixelSize":155},"fields":"pixelSize"}},
         ])
         # Wide identifiers and compositions must remain readable, not clipped.
-        wide = {"RESUMEN":[1], "RENDIMIENTO":[1], "COMPOSICIONES":[0],
+        wide = {"RESUMEN":[1], "COMPOSICIONES":[0],
                 "PARTIDAS":[6,8,9,10,11], "DETALLE DE PARTIDAS":[11,13,14,15,16],
                 "GUIA":[1]}
         for column in wide.get(name,[]):
@@ -126,42 +123,3 @@ def build_general(matches):
         populated=[m for m in matches if m.get(field)]
         result += [[label]+r for r in summary(populated,lambda m:str(m.get(field,"")))]
     return result
-
-def build_players(matches,players,details):
-    by_match={str(m.get("MATCH_ID")):m for m in matches}
-    by_detail={(str(d.get("MATCH_ID")),str(d.get("PUUID"))):d for d in details}
-    ranked=[]
-    participations=[]
-    compositions=defaultdict(list)
-    for p in players:
-        if p.get("ES_ACCA")!="SI" or p.get("EQUIPO_ACCA")!="SI":
-            continue
-        mid=str(p.get("MATCH_ID",""))
-        m=by_match.get(mid)
-        if not m:
-            continue
-        alias=str(p.get("ALIAS",""))
-        champion=str(p.get("CAMPEON",""))
-        role=str(p.get("ROL",""))
-        outcome=m.get("RESULTADO","")
-        d=by_detail.get((mid,str(p.get("PUUID",""))),{})
-        participations.append([mid,alias,champion,role,outcome,
-             p.get("KILLS",0),p.get("DEATHS",0),p.get("ASSISTS",0),
-             d.get("KDA",p.get("KDA","")),d.get("KP_%",p.get("KP_%","")),d.get("CS_MIN",p.get("CS_MIN","")),
-             d.get("ORO_MIN",p.get("ORO_MIN","")),d.get("DANO_MIN",p.get("DANO_MIN","")),p.get("VISION_SCORE",p.get("VISION",0)),p.get("ITEMS","")])
-        for section,key in (("JUGADORES",alias),("CAMPEONES",alias+" | "+champion),
-                            ("ROLES",alias+" | "+role)):
-            ranked.append({"SECTION":section,"KEY":key,"RESULTADO":outcome})
-        for item in set(str(p.get("ITEMS","")).split("|")):
-            if item.isdigit() and int(item)>0:
-                ranked.append({"SECTION":"OBJETOS","KEY":alias+" | "+champion+" | "+item,"RESULTADO":outcome})
-        compositions[mid].append(champion)
-    for mid,champs in compositions.items():
-        if len(champs)==5:
-            ranked.append({"SECTION":"COMPOSICIONES","KEY":" | ".join(sorted(champs)),"RESULTADO":by_match[mid].get("RESULTADO")})
-    sections=["JUGADORES","CAMPEONES","ROLES","OBJETOS","COMPOSICIONES"]
-    out=[]
-    for section in sections:
-        rows=[{"RESULTADO":r["RESULTADO"],"KEY":r["KEY"]} for r in ranked if r["SECTION"]==section]
-        out.extend([[section]+r for r in summary(rows,lambda r:r["KEY"])])
-    return out,participations
