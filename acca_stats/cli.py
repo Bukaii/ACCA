@@ -92,16 +92,23 @@ def present(book, players_book, matches=None, participants=None, details=None):
         champion_ws.batch_clear([f"{first_extra}1:{last_extra}"])
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
-    # A dedicated worksheet per alias; links always point to the actual sheet gid.
-    from collections import defaultdict
-    from urllib.parse import quote
+    # Dedicated player pages: identity, summary, champions, roles and match history.
+    from collections import defaultdict, Counter
     by_alias=defaultdict(list)
     for row in history:
         if len(row)>1 and row[1]:
             by_alias[str(row[1])].append(row)
+    registry_rows=records(players_book,"JUGADORES")
+    registry_by_alias=defaultdict(list)
+    for r in registry_rows:
+        alias=str(r.get("ALIAS","")).strip()
+        if alias:
+            registry_by_alias[alias].append(r)
     used_names=set()
     alias_tabs={}
-    for alias in sorted(set(by_alias) | {str(r.get("ALIAS","")).strip() for r in records(players_book,"JUGADORES") if str(r.get("ALIAS","")).strip()}):
+    page_header=["SECCION","DETALLE","VALOR","EXTRA","DATO_5","DATO_6","DATO_7","DATO_8",
+                 "DATO_9","DATO_10","DATO_11","DATO_12","DATO_13","DATO_14","DATO_15"]
+    for alias in sorted(set(by_alias)|set(registry_by_alias)):
         base="J_"+alias[:85].replace("/", "_").replace("[", "(").replace("]", ")").replace(":", "-").replace("?", "")
         name=base
         n=2
@@ -109,7 +116,35 @@ def present(book, players_book, matches=None, participants=None, details=None):
             name=base[:90-len(str(n))]+"_"+str(n)
             n+=1
         used_names.add(name)
-        ws=write_view(players_book,name,PLAYERS["PARTICIPACIONES"],by_alias[alias])
+        entries=by_alias[alias]
+        accounts=registry_by_alias[alias]
+        victories=sum(str(r[4]).upper()=="VICTORIA" for r in entries)
+        defeats=sum(str(r[4]).upper()=="DERROTA" for r in entries)
+        page=[
+            ["PERFIL","Alias",alias],
+            ["PERFIL","Cuentas Riot vinculadas",len(accounts)],
+        ]
+        for account in accounts:
+            page.append(["CUENTA","Riot ID",str(account.get("RIOT_ID","")),"PUUID: "+str(account.get("PUUID",""))])
+        page.extend([
+            ["RESUMEN","Partidas registradas",len(entries)],
+            ["RESUMEN","Victorias",victories],
+            ["RESUMEN","Derrotas",defeats],
+            ["RESUMEN","Winrate (%)",round(100*victories/len(entries),2) if entries else 0],
+        ])
+        if entries:
+            for label,index in (("Campeones",2),("Roles",3)):
+                counts=Counter(str(r[index]) for r in entries if r[index])
+                for value,count in counts.most_common():
+                    subset=[r for r in entries if str(r[index])==value]
+                    wins=sum(str(r[4]).upper()=="VICTORIA" for r in subset)
+                    page.append([label.upper(),value,count,round(100*wins/count,2)])
+            page.append(["HISTORIAL","Partidas del jugador"])
+            page.append(PLAYERS["PARTICIPACIONES"])
+            page.extend(entries)
+        else:
+            page.append(["HISTORIAL","Sin partidas registradas para este jugador."])
+        ws=write_view(players_book,name,page_header,page)
         alias_tabs[alias]=ws.id
     # Write plain aliases and apply native rich-text links instead of formulas.
     # This is locale-independent and keeps ALIAS usable as a stable identifier.
