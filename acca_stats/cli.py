@@ -235,6 +235,23 @@ def rebuild(book, matches=None, participants=None):
         role_entries.append({"RESULTADO":m["RESULTADO"],"KEY":str(p.get("ALIAS",""))+" | "+str(p.get("ROL",""))})
     write_rows(book,"STATS_JUGADORES",EXTRA_TABS["STATS_JUGADORES"],summary(player_entries,lambda r:r["KEY"]))
     write_rows(book,"STATS_ROLES",EXTRA_TABS["STATS_ROLES"],summary(role_entries,lambda r:r["KEY"]))
+    # Use Data Dragon localized names in the summary instead of numeric item IDs.
+    item_names_by_version = {}
+    def item_name(item_id, version):
+        patch = ".".join(str(version or "").split(".")[:2])
+        if patch not in item_names_by_version:
+            try:
+                import requests
+                response = requests.get(
+                    f"https://ddragon.leagueoflegends.com/cdn/{patch}.1/data/es_MX/item.json",
+                    timeout=12)
+                response.raise_for_status()
+                item_names_by_version[patch] = {
+                    str(k): v["name"] for k, v in response.json()["data"].items()
+                }
+            except Exception:
+                item_names_by_version[patch] = {}
+        return item_names_by_version[patch].get(item_id, "Objeto " + item_id)
     item_entries, comp_entries = [], []
     champions_by_match = {}
     for p in participants:
@@ -249,7 +266,7 @@ def rebuild(book, matches=None, participants=None):
         champions_by_match.setdefault(mid, []).append(champion)
         items = {item for item in str(p.get("ITEMS","")).split("|") if item.isdigit() and int(item)>0}
         for item in items:
-            item_entries.append({"RESULTADO":m["RESULTADO"],"KEY":alias+" | "+champion+" | "+item})
+            item_entries.append({"RESULTADO":m["RESULTADO"],"KEY":alias+" | "+champion+" | "+item_name(item, m.get("VERSION",""))})
     # Use the complete five-champion draft from match data when available.
     # Player-derived champions are only a fallback for complete ACCA rosters.
     for mid, match in by_id.items():
