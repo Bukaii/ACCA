@@ -95,7 +95,7 @@ jobs:
             sleep 5
           done
           cat /tmp/acca-discord-register.json
-          if [[ "$STATUS" != "200" ]] || ! jq -e '.ok == true and (.registered | index("jugadores"))' /tmp/acca-discord-register.json >/dev/null; then
+          if [[ "$STATUS" != "200" ]] || ! jq -e '.ok == true and (.registered | index("jugador")) and (.registered | index("lista"))' /tmp/acca-discord-register.json >/dev/null; then
             echo "::error::Discord slash-command registration failed (HTTP $STATUS)"
             exit 1
           fi
