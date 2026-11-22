@@ -235,9 +235,10 @@ export default {
     if (interaction.data.name==="lista") {
       try {
         const pages=await listPlayers(env);
-        const content=Array.isArray(pages)?pages.join("\\n"):pages;
-        if(content.length<=2000) return json({type:4,data:{content,flags:64,allowed_mentions:{parse:[]}}});
-        return json({type:4,data:{content:pages[0],flags:64,allowed_mentions:{parse:[]}}});
+        return json({type:4,data:{
+          embeds:pages.slice(0,10).map(description=>({description})),
+          flags:64,allowed_mentions:{parse:[]}
+        }});
       } catch(error) {
         console.error("Error listando jugadores",String(error));
         return json({type:4,data:{content:"No se pudo consultar la lista de jugadores.",flags:64}});
