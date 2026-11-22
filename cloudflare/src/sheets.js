@@ -210,7 +210,7 @@ async function updatePage(access,alias,accounts,archives) {
       Math.round(((p.totalMinionsKilled||0)+(p.neutralMinionsKilled||0))/Math.max(1,(p.match.info.gameDuration||0)/60)*100)/100,
       p.goldEarned||0,p.totalDamageDealtToChampions||0,p.visionScore||0,finalItemIds(p).map(id=>itemLabel(id,namesFor(p))).join(" | ")])
   ];
-  const width=18, navy={red:0.12,green:0.19,blue:0.30},blue={red:0.19,green:0.32,blue:0.49},
+  const width=16, navy={red:0.12,green:0.19,blue:0.30},blue={red:0.19,green:0.32,blue:0.49},
     pale={red:0.91,green:0.94,blue:0.98},white={red:1,green:1,blue:1},ink={red:0.12,green:0.18,blue:0.27};
   const meta=await google(access,PLAYERS,"?fields=sheets(properties(sheetId),merges)");
   const existing=meta.sheets.find(sh=>sh.properties.sheetId===ws.properties.sheetId);
