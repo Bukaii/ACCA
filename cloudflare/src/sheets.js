@@ -136,9 +136,21 @@ async function updatePage(access,alias,accounts,archives) {
     record.count++;record.wins+=p.win?1:0;record.k+=p.kills||0;record.d+=p.deaths||0;record.a+=p.assists||0;
     byChampion.set(c,record);
     const role=byRole.get(r)||{count:0,wins:0};role.count++;role.wins+=p.win?1:0;byRole.set(r,role);
-    for(const id of finalItemIds(p)) {
+    // One observation per match and item, not one per item slot.
+    // Metrics describe this player's performance in matches using that item.
+    const minutes=Math.max(1,(p.match.info.gameDuration||0)/60);
+    for(const id of new Set(finalItemIds(p))) {
       const name=itemLabel(id,namesFor(p));
-      byItem.set(name,(byItem.get(name)||0)+1);
+      const item=byItem.get(name)||{games:0,wins:0,k:0,d:0,a:0,damage:0,gold:0,cs:0,vision:0,champions:new Map()};
+      item.games++;
+      item.wins+=p.win?1:0;
+      item.k+=p.kills||0;item.d+=p.deaths||0;item.a+=p.assists||0;
+      item.damage+=p.totalDamageDealtToChampions||0;
+      item.gold+=p.goldEarned||0;
+      item.cs+=((p.totalMinionsKilled||0)+(p.neutralMinionsKilled||0))/minutes;
+      item.vision+=p.visionScore||0;
+      item.champions.set(c,(item.champions.get(c)||0)+1);
+      byItem.set(name,item);
     }
   }
   // A duo is the player plus one other registered ACCA alias on the same team.
@@ -205,9 +217,16 @@ async function updatePage(access,alias,accounts,archives) {
     ...[...byRole].sort((a,b)=>b[1].count-a[1].count).map(([r,x])=>[r,x.count,x.wins,x.count-x.wins,rate(x.wins,x.count),0]),
     [],
     ["Objetos finales más usados"],
-    ["Frecuencia de objetos en las partidas registradas."],
-    ["OBJETO","APARICIONES"],
-    ...[...byItem].sort((a,b)=>b[1]-a[1]).slice(0,30),
+    ["Estadísticas del jugador en partidas donde utilizó cada objeto final. No implican que el objeto causara el resultado."],
+    ["OBJETO","PARTIDAS","USO_%","VICTORIAS","DERROTAS","WINRATE_%","KDA","KILLS_PROM","MUERTES_PROM","ASIST_PROM","DAÑO_PROM","ORO_PROM","CS_MIN","VISION_PROM","CAMPEÓN MÁS USADO"],
+    ...[...byItem].sort((a,b)=>b[1].games-a[1].games||a[0].localeCompare(b[0])).slice(0,30).map(([name,x])=>[
+      name,x.games,rate(x.games,own.length),x.wins,x.games-x.wins,rate(x.wins,x.games),
+      Math.round((x.k+x.a)/Math.max(1,x.d)*100)/100,
+      Math.round(x.k/x.games*100)/100,Math.round(x.d/x.games*100)/100,Math.round(x.a/x.games*100)/100,
+      Math.round(x.damage/x.games),Math.round(x.gold/x.games),Math.round(x.cs/x.games*100)/100,
+      Math.round(x.vision/x.games*100)/100,
+      [...x.champions].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0]?.[0]||""
+    ]),
     [],
     ["Mejores dúos"],
     ["Hasta 3 compañeros de ACCA con quienes compartiste equipo. Las estadísticas individuales son tuyas en esas partidas."],
