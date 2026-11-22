@@ -118,11 +118,9 @@ def present(book, players_book, matches=None, participants=None, details=None):
             requests.append({"updateCells":{
                 "start":{"sheetId":ws.id,"rowIndex":index,"columnIndex":column},
                 "rows":[{"values":[{"userEnteredValue":{"stringValue":alias},
-                                    "userEnteredFormat":{"textFormat":{"link":{"uri":link}}}}]}],
-                "fields":"userEnteredValue,userEnteredFormat.textFormat.link"
+                                    "userEnteredFormat":{"textFormat":{"link":{"uri":link},"foregroundColor":{"red":0.10,"green":0.33,"blue":0.80},"underline":True}}}}]}],
+                "fields":"userEnteredValue,userEnteredFormat.textFormat.link,userEnteredFormat.textFormat.foregroundColor,userEnteredFormat.textFormat.underline"
             }})
-    for start in range(0,len(requests),100):
-        players_book.batch_update({"requests":requests[start:start+100]})
 
     # Restore complete historical player analytics from the untouched original
     # J_* reports in the general workbook. Append current match history below.
@@ -301,26 +299,8 @@ def present(book, players_book, matches=None, participants=None, details=None):
                     "startColumnIndex":0,"endColumnIndex":width},
                     "mergeType":"MERGE_ALL"}})
         players_book.batch_update({"requests":requests})
-    guide = [
-        ["CAMPO","SIGNIFICADO"],
-        ["MATCH_ID","Identificador único de partida de Riot; LA2_ seguido del número"],
-        ["REGISTRO","Ingresar MATCH_ID; PENDIENTE = por procesar, PROCESADA = importada, ERROR = requiere revisión"],
-        ["PARTIDAS_PENDIENTES","Historial técnico de la cola; incluye partidas ya procesadas"],
-        ["N_ACCA","Cantidad de miembros ACCA del lado seleccionado (entre 1 y 5)"],
-        ["EQUIPO_ACCA","Miembros ACCA que participaron juntos; no es la composición de cinco campeones"],
-        ["COMPOSICION_ACCA","Los cinco campeones del lado elegido, sean o no jugadores ACCA"],
-        ["WINRATE_%","Porcentaje de victorias: VICTORIAS dividido por PARTIDAS"],
-        ["WR_MIN_95_%","Límite inferior estadístico de Wilson al 95%; ranking conservador, no otro porcentaje de victorias"],
-        ["CONFIANZA BAJA","Pocas partidas observadas: el resultado todavía no es fiable"],
-        ["CONFIANZA MEDIA / ALTA","Más partidas observadas; los umbrales dependen de la configuración del análisis"],
-        ["SUPABASE","Los JSON completos de Riot se guardan exclusivamente en Supabase"],
-        ["JUGADORES","Una fila por Riot ID, repetí ALIAS para agregar cuentas adicionales del mismo jugador"],
-    ]
-    for destination in (book, players_book):
-        write_view(destination,"GUIA",guide[0],guide[1:])
-    player_names = set(PLAYERS) | {"GUIA"} | {ws.title for ws in players_book.worksheets()
-                                   if ws.title.startswith("J_")}
-    style(players_book,{name for name in player_names if not name.startswith("J_")})
+    player_names = set(PLAYERS)
+    style(players_book,player_names)
     # Published summaries are views, not a source of truth.
     # Expose complete, readable copies of the major analytics tables.
     friendly = {
@@ -333,14 +313,14 @@ def present(book, players_book, matches=None, participants=None, details=None):
         values = source_ws.get_all_values()
         if values:
             write_view(book, destination, values[0], values[1:])
-    visible = set(GENERAL) | {"CAMPEONES", "GUIA"} | set(friendly.values())
+    visible = set(GENERAL) | {"CAMPEONES"} | set(friendly.values())
     style(book, visible)
     hide_legacy(book, visible)
     for ws in book.worksheets():
         if ws.title in visible and ws._properties.get("hidden", False):
             book.batch_update({"requests": [{"updateSheetProperties": {"properties": {"sheetId": ws.id, "hidden": False}, "fields": "hidden"}}]})
     # Display the most useful views first, keeping all technical tables intact.
-    ordered = ["REGISTRO", "GUIA", "RESUMEN", "PARTIDAS",
+    ordered = ["REGISTRO", "RESUMEN", "PARTIDAS",
                "CAMPEONES", "EQUIPOS", "COMPOSICIONES", "OBJETOS"]
     book.batch_update({"requests": [
         {"updateSheetProperties": {
@@ -349,7 +329,7 @@ def present(book, players_book, matches=None, participants=None, details=None):
         }} for index, name in enumerate(ordered)
     ]})
     # Put navigation and instructions next to their corresponding editable tables.
-    player_order = ["JUGADORES", "GUIA", "RENDIMIENTO", "PARTICIPACIONES"]
+    player_order = ["JUGADORES", "RENDIMIENTO", "PARTICIPACIONES"]
     players_book.batch_update({"requests":[{"updateSheetProperties":{"properties":
         {"sheetId":players_book.worksheet(name).id,"index":i},"fields":"index"}}
         for i,name in enumerate(player_order)]})
@@ -357,6 +337,9 @@ def present(book, players_book, matches=None, participants=None, details=None):
         if ws.title == "IDENTIDADES" and not ws._properties.get("hidden",False):
             players_book.batch_update({"requests":[{"updateSheetProperties":{
                 "properties":{"sheetId":ws.id,"hidden":True},"fields":"hidden"}}]})
+    # Restore link styling after the sheet-wide formatting pass.
+    for start in range(0,len(requests),100):
+        players_book.batch_update({"requests":requests[start:start+100]})
     # All individual player reports must remain visible after every sync.
     for ws in players_book.worksheets():
         if ws.title.startswith("J_") and ws._properties.get("hidden", False):
@@ -415,6 +398,9 @@ def resolve_players(book):
                 rows.append({"ALIAS": alias, "RIOT_ID": account["riot_id"],
                              "REGION": "", "ACTIVO": "SI", "PUUID": account["puuid"],
                              "ESTADO": "OK", "MENSAJE": ""})
+    for row in rows:
+        if not str(row.get("ACTIVO","")).strip():
+            row["ACTIVO"]="SI"
     write_rows(book, "JUGADORES", TABS["JUGADORES"],
                [[r.get(k, "") for k in TABS["JUGADORES"]] for r in rows])
     return mapping
