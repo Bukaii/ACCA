@@ -58,6 +58,4 @@ Las estadísticas se actualizan automáticamente; no tenés que editar las hojas
 
 **¿Qué pasa si escribo mal un Riot ID?** El bot te avisa si no encuentra la cuenta. Revisá el nombre y lo que aparece después del `#`.
 
-**¿Por qué no puedo usar los comandos?** Están disponibles para administradores y personas con los roles autorizados del servidor. Si no tenés permiso, consultá con un administrador de ACCA.
-
 **¿Qué hago si una partida no aparece?** Esperá a que termine el procesamiento y revisá la respuesta del bot. Si indica un error, avisá a un administrador con el ID de la partida.
