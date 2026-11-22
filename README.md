@@ -41,9 +41,9 @@ Al terminar una partida que corresponda registrar en ACCA, escribí `/partida` e
 
 Para partidas del servidor LAS también podés ingresar únicamente el número del ID.
 
-El bot primero confirma que recibió la partida. Después descarga la información, la guarda y actualiza las estadísticas de Google Sheets. **Puede tardar un poco**; no es necesario volver a enviar el comando mientras está procesando.
+El bot primero confirma que recibió la partida y comprueba si hay **5 jugadores distintos de ACCA registrados en el mismo equipo**. Si faltan jugadores, la partida queda **PENDIENTE**, indicando cuántos faltan. No se suma a las estadísticas hasta completar los cinco.\n\nEl bot vuelve a comprobar las partidas pendientes automáticamente cada cinco minutos. También podés volver a usar `/partida` con el mismo ID para comprobarlo en ese momento, sin duplicar la partida. Cuando se completa el equipo, se publican las estadísticas automáticamente.
 
-Si la partida ya fue registrada, el bot te lo indica y evita volver a agregarla.
+Si la partida ya fue publicada y sigue teniendo los cinco jugadores registrados, el bot te lo indica y evita volver a agregarla.
 
 ## ¿Dónde veo las estadísticas?
 
