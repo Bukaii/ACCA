@@ -92,11 +92,10 @@ def present(book, players_book, matches=None, participants=None, details=None):
         champion_ws.batch_clear([f"{first_extra}1:{last_extra}"])
     write_view(players_book,"RENDIMIENTO",PLAYERS["RENDIMIENTO"],ranking)
     write_view(players_book,"PARTICIPACIONES",PLAYERS["PARTICIPACIONES"],history)
-    # Link to the original, multi-section J_* reports in the general workbook.
-    # Never recreate these pages as flat tables in the players workbook.
+    # Link aliases to their dedicated J_* tabs in the SAME players workbook.
     registry_rows=records(players_book,"JUGADORES")
     alias_tabs={}
-    for ws in book.worksheets():
+    for ws in players_book.worksheets():
         if ws.title.startswith("J_"):
             alias_tabs[ws.title[2:]]=ws.id
     # Write plain aliases and apply native rich-text links instead of formulas.
@@ -114,7 +113,7 @@ def present(book, players_book, matches=None, participants=None, details=None):
             gid=alias_tabs.get(alias)
             if gid is None:
                 continue
-            link="https://docs.google.com/spreadsheets/d/"+book.id+"/edit#gid="+str(gid)
+            link="https://docs.google.com/spreadsheets/d/"+players_book.id+"/edit#gid="+str(gid)
             requests.append({"updateCells":{
                 "start":{"sheetId":ws.id,"rowIndex":index,"columnIndex":column},
                 "rows":[{"values":[{"userEnteredValue":{"stringValue":alias},
