@@ -145,6 +145,19 @@ async function registerCommands(env) {
 export default {
   async scheduled(event,env,ctx) { ctx.waitUntil(registerCommands(env)); },
   async fetch(request,env) {
+    const url=new URL(request.url);
+    if (request.method==="POST" && url.pathname==="/__register-commands") {
+      const token=request.headers.get("X-ACCA-Registration-Key")||"";
+      if (!env.ACCA_REGISTRATION_KEY || token.length<32 || token!==env.ACCA_REGISTRATION_KEY)
+        return new Response("Unauthorized",{status:401});
+      try {
+        await registerCommands(env);
+        return json({ok:true,registered:["partida","jugadores"]});
+      } catch (error) {
+        console.error("Discord command registration failed",String(error));
+        return new Response(JSON.stringify({ok:false,error:String(error).slice(0,300)}),{status:502,headers:{"Content-Type":"application/json"}});
+      }
+    }
     if (request.method!=="POST") return new Response("ACCA Discord Bot");
     const body=await request.text();
     if (!await verified(request,body,env.DISCORD_PUBLIC_KEY)) return new Response("Unauthorized",{status:401});
