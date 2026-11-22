@@ -126,6 +126,43 @@ async function updatePage(access,alias,accounts,archives) {
       byItem.set(name,(byItem.get(name)||0)+1);
     }
   }
+  // A duo is the player plus one other registered ACCA alias on the same team.
+  // Five-player teams require five distinct registered ACCA aliases on the same side.
+  const aliasByPuuid=new Map(accounts.map(a=>[a.puuid,a.alias_key]));
+  const displayByKey=new Map(accounts.map(a=>[a.alias_key,a.alias_key]));
+  const duos=new Map(),teamsOfFive=new Map();
+  const counted=new Set();
+  for(const {id,match} of archives) {
+    const participants=match.info?.participants||[];
+    const player=participants.find(p=>aliasByPuuid.get(p.puuid)===alias.toLocaleLowerCase("es"));
+    if(!player) continue;
+    const team=participants.filter(p=>p.teamId===player.teamId);
+    const partners=[...new Set(team.map(p=>aliasByPuuid.get(p.puuid)).filter(k=>k&&k!==alias.toLocaleLowerCase("es")))];
+    const duration=Math.max(1,(match.info?.gameDuration||0)/60);
+    const add=(map,key,memberCount)=>{
+      const dedupe=id+"|"+key+"|"+memberCount;
+      if(counted.has(dedupe)) return;
+      counted.add(dedupe);
+      const x=map.get(key)||{games:0,wins:0,k:0,d:0,a:0,damage:0,gold:0,vision:0,cs:0};
+      x.games++;x.wins+=player.win?1:0;
+      x.k+=player.kills||0;x.d+=player.deaths||0;x.a+=player.assists||0;
+      x.damage+=player.totalDamageDealtToChampions||0;x.gold+=player.goldEarned||0;
+      x.vision+=player.visionScore||0;
+      x.cs+=((player.totalMinionsKilled||0)+(player.neutralMinionsKilled||0))/duration;
+      map.set(key,x);
+    };
+    for(const partner of partners) add(duos,partner,2);
+    const five=[...new Set(team.map(p=>aliasByPuuid.get(p.puuid)).filter(Boolean))].sort();
+    if(five.length===5) add(teamsOfFive,five.join(" + "),5);
+  }
+  const topGroups=map=>[...map].sort((a,b)=>(b[1].wins/b[1].games)-(a[1].wins/a[1].games)||b[1].games-a[1].games||a[0].localeCompare(b[0])).slice(0,3);
+  const groupRows=map=>topGroups(map).map(([key,x])=>[
+    key,x.games,x.wins,x.games-x.wins,Math.round(x.wins/x.games*10000)/100,
+    Math.round((x.k+x.a)/Math.max(1,x.d)*100)/100,x.k,x.d,x.a,
+    Math.round(x.damage/x.games),Math.round(x.gold/x.games),
+    Math.round(x.cs/x.games*100)/100,Math.round(x.vision/x.games)
+  ]);
+  const groupHeader=["COMPAÑEROS","PARTIDAS","VICTORIAS","DERROTAS","WINRATE_%","KDA","KILLS","MUERTES","ASISTENCIAS","DAÑO_PROM","ORO_PROM","CS_MIN","VISION"];
   const sum=(field)=>own.reduce((n,p)=>n+(Number(p[field])||0),0);
   const avg=(fn)=>own.length?Math.round(100*own.reduce((n,p)=>n+fn(p),0)/own.length)/100:0;
   const wilson=own.length?Math.max(0,100*((wins/own.length+1.96*1.96/(2*own.length)-1.96*Math.sqrt((wins/own.length)*(1-wins/own.length)/own.length+1.96*1.96/(4*own.length*own.length)))/(1+1.96*1.96/own.length))):0;
@@ -158,6 +195,14 @@ async function updatePage(access,alias,accounts,archives) {
     ["OBJETO","APARICIONES"],
     ...[...byItem].sort((a,b)=>b[1]-a[1]).slice(0,30),
     [],
+    ["Mejores dúos"],
+    ["Hasta 3 compañeros de ACCA con quienes compartiste equipo, ordenados por porcentaje de victorias y partidas."],
+    groupHeader,...(duos.size?groupRows(duos):[["Sin partidas compartidas con otros jugadores ACCA"]]),
+    [],
+    ["Mejores equipos de 5"],
+    ["Hasta 3 equipos completos de cinco jugadores ACCA, ordenados por porcentaje de victorias y partidas."],
+    groupHeader,...(teamsOfFive.size?groupRows(teamsOfFive):[["Sin partidas con cinco jugadores ACCA registrados"]]),
+    [],
     ["Historial de partidas registradas"],
     ["Detalle de cada participación oficial; incluye resultados y métricas de Riot."],
     ["MATCH_ID","FECHA_UTC","MODO","RESULTADO","CAMPEON","ROL","KILLS","DEATHS","ASSISTS","KDA","CS_MIN","ORO","DANO","VISION","ITEMS"],
@@ -175,12 +220,12 @@ async function updatePage(access,alias,accounts,archives) {
     {updateCells:{range:{sheetId:ws.properties.sheetId,startRowIndex:0},fields:"userEnteredValue"}},
     {updateSheetProperties:{properties:{sheetId:ws.properties.sheetId,gridProperties:{hideGridlines:true,frozenRowCount:0}},fields:"gridProperties.hideGridlines,gridProperties.frozenRowCount"}},
     {repeatCell:{range:{sheetId:ws.properties.sheetId},cell:{userEnteredFormat:{backgroundColor:white,horizontalAlignment:"LEFT",verticalAlignment:"MIDDLE",wrapStrategy:"WRAP",textFormat:{fontSize:10,foregroundColor:ink}}},fields:"userEnteredFormat"}},
-    {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:0,endIndex:1},properties:{pixelSize:350},fields:"pixelSize"}},
+    {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:0,endIndex:1},properties:{pixelSize:140},fields:"pixelSize"}},
     {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:1,endIndex:2},properties:{pixelSize:260},fields:"pixelSize"}},
-    {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:2,endIndex:width},properties:{pixelSize:145},fields:"pixelSize"}}
+    {updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"COLUMNS",startIndex:2,endIndex:width},properties:{pixelSize:110},fields:"pixelSize"}}
   );
-  const sections=new Set(["Resumen histórico","Por campeón","Por rol","Objetos finales más usados","Historial de partidas registradas"]);
-  const headers=new Set(["PARTIDAS","CAMPEON","ROL","OBJETO","MATCH_ID"]);
+  const sections=new Set(["Resumen histórico","Por campeón","Por rol","Objetos finales más usados","Mejores dúos","Mejores equipos de 5","Historial de partidas registradas"]);
+  const headers=new Set(["PARTIDAS","CAMPEON","ROL","OBJETO","COMPAÑEROS","MATCH_ID"]);
   function paint(i,color,fontColor,fontSize,height,bold=true) {
     requests.push({repeatCell:{range:{sheetId:ws.properties.sheetId,startRowIndex:i,endRowIndex:i+1,startColumnIndex:0,endColumnIndex:width},
       cell:{userEnteredFormat:{backgroundColor:color,horizontalAlignment:"LEFT",verticalAlignment:"MIDDLE",wrapStrategy:"WRAP",
@@ -189,15 +234,15 @@ async function updatePage(access,alias,accounts,archives) {
   }
   rows.forEach((row,i)=>{
     const first=row[0];
-    if(i===0) paint(i,navy,white,15,68);
+    if(i===0) paint(i,navy,white,15,58);
     else if(i===1||i===2) paint(i,pale,ink,10,i===1?36:58,false);
     else if(sections.has(first)) {
-      paint(i,blue,white,15,58);
+      paint(i,blue,white,14,46);
       requests.push({updateBorders:{range:{sheetId:ws.properties.sheetId,startRowIndex:i,endRowIndex:i+1,startColumnIndex:0,endColumnIndex:width},
         top:{style:"SOLID_MEDIUM",color:navy}}});
-    } else if(headers.has(first)&&row.length>1) paint(i,pale,ink,10,46);
-    else if(row.length===1&&first) paint(i,{red:0.95,green:0.97,blue:0.99},ink,10,46,false);
-    else if(row.length>1) paint(i,i%2?white:{red:0.97,green:0.98,blue:0.99},ink,10,34,false);
+    } else if(headers.has(first)&&row.length>1) paint(i,pale,ink,10,38);
+    else if(row.length===1&&first) paint(i,{red:0.95,green:0.97,blue:0.99},ink,10,36,false);
+    else if(row.length>1) paint(i,i%2?white:{red:0.97,green:0.98,blue:0.99},ink,10,30,false);
     else requests.push({updateDimensionProperties:{range:{sheetId:ws.properties.sheetId,dimension:"ROWS",startIndex:i,endIndex:i+1},properties:{pixelSize:22},fields:"pixelSize"}});
     if(row.length===1&&first) requests.push({mergeCells:{range:{sheetId:ws.properties.sheetId,startRowIndex:i,endRowIndex:i+1,startColumnIndex:0,endColumnIndex:width},mergeType:"MERGE_ALL"}});
   });
