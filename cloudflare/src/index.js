@@ -275,7 +275,18 @@ export default {
     if (!id) return json({type:4,data:{content:"ID inválido. Ejemplo: LA2_1638914973",flags:64}});
     try {
       const current=await getJob(env,id);
-      if (current?.status==="ARCHIVADA") return json({type:4,data:{content:"La partida "+id+" ya está publicada. Estado: "+current.status,flags:64}});
+      if (current?.status==="ARCHIVADA") {
+        const stored=await archivedMatch(env,id);
+        if(stored) {
+          const check=validateAccaRoster(stored,await rosterAccounts(env));
+          if(!check.valid) {
+            await setJob(env,id,{status:"PENDIENTE",error_message:check.reason});
+            await env.ACCA_QUEUE.send({id,appId:interaction.application_id,token:interaction.token,type:"recheck"});
+            return json({type:4,data:{content:"Partida "+id+" pendiente: "+check.reason,flags:64}});
+          }
+        }
+        return json({type:4,data:{content:"La partida "+id+" ya está publicada y tiene 5 jugadores ACCA registrados.",flags:64}});
+      }
       if (current?.status==="PROCESANDO")
         return json({type:4,data:{content:"La partida "+id+" ya está en proceso.",flags:64}});
       if (current?.status==="PENDIENTE" && current.archived_at) {
